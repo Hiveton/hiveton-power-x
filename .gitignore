@@ -1,0 +1,8 @@
+.DS_Store
+.superpowers/
+*.o
+*.d
+*.elf
+*.hex
+*.map
+*.lst
