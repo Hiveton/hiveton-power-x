@@ -75,8 +75,10 @@ uint16_t ui_widgets_protocol_color(protocol_kind_t kind, uint8_t emark_present)
             return 0x07FFU;
         case PROTOCOL_KIND_FCP:
             return 0xF81FU;
+        case PROTOCOL_KIND_OTHER:
+            return 0xFFFFU;
         case PROTOCOL_KIND_NONE:
         default:
-            return 0x4208U;
+            return 0xFFFFU;
     }
 }

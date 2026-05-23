@@ -4,19 +4,14 @@
 #include "app_controller.h"
 #include "app_tasks.h"
 #include "bsp_board.h"
+#include "bsp_board_config.h"
+#include "bsp_lcd_st7735.h"
 
 int main(void)
 {
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_1);
     SystemCoreClockUpdate();
     Delay_Init();
-    USART_Printf_Init(115200);
-    printf("\r\n========================================\r\n");
-    printf(" Hiveton PX1 boot\r\n");
-    printf("========================================\r\n");
-    printf("SystemClk:%d\r\n", SystemCoreClock);
-    printf("ChipID:%08x\r\n", DBGMCU_GetCHIPID());
-    printf("FreeRTOS Kernel Version:%s\r\n", tskKERNEL_VERSION_NUMBER);
 
     bsp_board_init();
     app_controller_init();
@@ -24,7 +19,7 @@ int main(void)
 
     vTaskStartScheduler();
 
-    printf("PX1 fatal: scheduler failed to start\r\n");
+    bsp_lcd_fill_color(0x001FU);
     taskDISABLE_INTERRUPTS();
     for (;;)
     {
@@ -37,7 +32,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
     (void)pcTaskName;
 
     taskDISABLE_INTERRUPTS();
-    printf("PX1 fatal: stack overflow detected\r\n");
+    bsp_lcd_fill_color(0xF81FU);
     for (;;)
     {
     }
@@ -46,7 +41,7 @@ void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
 void vApplicationMallocFailedHook(void)
 {
     taskDISABLE_INTERRUPTS();
-    printf("PX1 fatal: malloc failed\r\n");
+    bsp_lcd_fill_color(0xF800U);
     for (;;)
     {
     }

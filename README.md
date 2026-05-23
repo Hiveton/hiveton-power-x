@@ -6,25 +6,33 @@
 
 - `CH32L103K8U6 + FreeRTOS` 的主工程框架
 - 面向 PX1 硬件的 `BSP / Service / UI / App` 分层代码
-- 电压、电流、功率、趋势级纹波的测量链路骨架
+- 基于 INA226 的电压、电流、功率测量链路
 - `PD` 监听与请求、`E-Marker` 摘要、`QC/AFC/FCP` 传统快充诱骗骨架
 - `0.96" ST7735S` 彩屏的低内存 UI 渲染框架
 - 原理图、原厂 `EVT` 例程、屏幕参考代码、设计规格和实施计划
 
-项目当前仍处于 `bring-up + MVP 开发` 阶段，已经完成软件架构搭建和主要功能链路收口，后续重点是继续补齐真实硬件参数、板级调试和协议细节。
+项目当前仍处于 `bring-up + MVP 开发` 阶段，已经完成软件架构搭建、160x80 产品 UI、主要协议链路和命令行验证脚本，后续重点是实机下载、板级验证和协议兼容性收尾。
 
 ## 项目状态总览
 
 | 模块 | 当前状态 | 说明 |
 | --- | --- | --- |
-| 测量框架 | 已接入 | 已有 `ADC/DMA + snapshot` 骨架，电流工程值仍待标定 |
+| 测量框架 | 已接入 | 当前使用 INA226 `0x40`，R3 `5mR`，输出 VBUS/电流/功率 snapshot |
 | 纹波 | MVP | 当前为趋势级估算，不是示波器级 |
-| PD | 持续完善中 | 已有监听、请求、快照和基础协商路径 |
-| QC/AFC/FCP | 框架已立 | 请求模型和底层接口已接上，兼容性细节继续补齐 |
-| E-Marker | 基础支持 | 当前以摘要信息为主 |
-| LCD/UI | 已接入 | `ST7735S + line buffer`，主/协议/诱骗页已成型 |
-| 按键交互 | 已接入 | 3 键导航与诱骗页选档/确认已落地 |
+| PD | 已接入 | 已有监听、固定 PDO/PPS APDO 请求、PS_RDY 状态、SOP' E-marker 请求 |
+| QC/AFC/FCP | 部分接入 | QC2/QC3 请求和 DP/DM 采样已接入，AFC/FCP 保留枚举与扩展位 |
+| E-Marker | 基础支持 | 解析线缆电流能力、速度等级和线缆类型摘要，并用于 PD 请求电流限流 |
+| LCD/UI | 已接入 | `ST7735S + line buffer`，9 页 160x80 产品 UI 已成型 |
+| 按键交互 | 已接入 | 3 键导航、action mode、诱骗页选档/确认、设置页已落地 |
 | 文档 | 已建立 | 原理图、规格、计划、bring-up 模板都已入库 |
+
+PD 高压请求不会跨连接自动继承：Type-C detach 或 PD SoftReset 后会回到默认 5V，用户需要在 UI 再次确认才会请求 9V/12V/15V/20V。
+PDO 页 action mode 支持 20mV 步进微调 PPS 目标电压；进入编辑时会先同步当前 PD 目标/合约电压，确认后按该目标发 PD/PPS Request。
+PD 高压请求被 Reject/Wait 或超时失败后也会恢复默认 5V 偏好，同时保留真正失败的目标给 UI 显示。
+PD `PS_RDY` 后还会等待 INA226 实测 VBUS 到达目标范围，确认后才把请求状态标成 `READY`。
+PD VBUS 校验阶段会把新的目标请求排队，等当前电压确认完成后再发下一次 Request，避免连续诱骗打断当前合约确认。
+PD 合约活动时，QC 页确认不会驱动 DP/DM legacy 诱骗，目标电压会按 PD 请求处理，避免 PD/QC 同时争用。
+QC 高压请求失败后也会释放 DP/DM 到 Hi-Z，短暂保留 `FAIL` 快照给 UI 刷新，随后发布 `NONE` 清屏，避免下一次接入电源时沿用旧的诱骗电平或旧失败态。
 
 ## 1. 项目目标
 
@@ -74,26 +82,25 @@
 ### 已经落地的部分
 
 - `FreeRTOS` 多任务骨架
-- `ADC/DMA` 测量服务骨架
+- `INA226` 测量服务
 - `PD` 快照模型与基础协商流程
 - `legacy charge` 请求模型
 - `ST7735S` 硬件 SPI / DMA 像素推送框架
-- 主页面、协议页面、诱骗页面的低内存渲染路径
+- 主页、曲线、协议、触发、PDO、QC、CC、线缆、设置 9 页低内存渲染路径
 - 主机侧单元测试
+- 命令行 host 测试脚本和 `wchisp` 下载脚本
 
 ### 当前重点中的部分
 
-- 电流测量前端工程量参数标定
 - `QC/AFC/FCP` 真实电平时序细化
 - `PD` 更完整的实机协商闭环
-- `E-Marker` 深度读取
-- 页面细节、统计页和板级 bring-up
+- 实机下载、页面验证和板级 bring-up
 
 ### 暂未完成或仍保守处理的部分
 
 - 高可信绝对纹波测量
 - 完整传统快充被动识别兼容性
-- 上位机通信协议
+- 上位机通信协议，目前 USB CDC 已删除以避免占用 PA11/PA12
 - 量产级校准与出厂参数流程
 
 ## 4. 软件架构
@@ -225,6 +232,11 @@ HivetonPowerX/
 │   │   ├── User/         # 工程入口、配置、中断
 │   │   └── obj/          # MRS 工程生成的构建目录
 │   └── SRC/              # CH32L103 外设库与底层源码
+├── tools/
+│   ├── run_host_tests.sh # 主机侧测试一键入口
+│   ├── check_wch_isp_device.sh # WCH ISP USB 枚举预检
+│   ├── flash_powerx.sh   # wchisp 探测与烧录入口
+│   └── run_powerx_real_device_closure.sh # 实机下载与最终闭环入口
 └── docs/
     ├── SCH_HivetonPX1_2026-04-03.pdf
     ├── EVT/              # 原厂参考例程
@@ -263,7 +275,7 @@ ADC/USBPD/DPDM/KEY
 其中最重要的几个共享模型是：
 
 - `measure_snapshot_t`
-- `protocol_snapshot_t`
+- `protocol_snapshot_t`，包含 `kind/request_state`、固定 PDO、PPS APDO 范围、E-Marker、DP/DM 采样和 `cc_attached/cc_orientation`
 - `legacy_charge_request_t`
 - `ui_model_state_t`
 
@@ -287,15 +299,22 @@ ADC/USBPD/DPDM/KEY
 当前 UI 主要围绕 3 键工作：
 
 - `BTN_1`：翻页或在诱骗页中减档
-- `BTN_2`：确认，长按回主页面
+- `BTN_2`：确认；长按进入/退出设置 action mode
 - `BTN_3`：翻页或在诱骗页中加档
 
-当前页面方向：
+按键事件语义：短按在松手时上报，长按达到阈值时上报且不再夹带短按。BTN2/PB9 与 BTN3/PA15 由 EXTI 捕获，BTN1/PB15 与 BTN3 共用 EXTI15，硬件限制下由 20 ms 扫描兜底。
+
+当前页面顺序：
 
 - `Main`：大数值主视图
+- `Scope`：电压/电流/功率趋势和 min/max
 - `Protocol`：协议状态与合同信息
 - `Trigger`：目标电压预置与主动诱骗
-- `Stats`：统计页，后续继续完善
+- `PDO`：固定 PDO 列表、PPS 范围和选择状态
+- `QC`：QC 目标、DP/DM 电压和请求状态
+- `CC`：CC1/CC2 状态和方向
+- `Cable`：E-marker 电流能力和线缆摘要
+- `Settings`：亮度、旋转、TRIG 手动/自动
 
 诱骗页目前已经支持 `5V / 9V / 12V / 15V / 20V` 预置选择，并能根据当前协议类型把请求分发到 `PD` 或 `legacy charge` 服务层。
 
@@ -354,12 +373,31 @@ ADC/USBPD/DPDM/KEY
 
 当前已经存在的主机侧测试包括：
 
+- `test_app_protocol_arbiter`
 - `test_measure_service`
 - `test_protocol_snapshot`
 - `test_legacy_charge_and_emark`
 - `test_ui_model`
 - `test_ui_pages`
 - `test_app_trigger_control`
+- `test_app_ui_navigation`
+- `test_bsp_adc_config`
+- `test_bsp_keys_polarity`
+- `test_bsp_lcd_rotation`
+- `test_ui_scope_model`
+- `test_ui_value_format`
+
+一键运行：
+
+```bash
+tools/run_host_tests.sh
+```
+
+逐项目标覆盖审计：
+
+```bash
+tools/check_powerx_objective_coverage.sh --software-only artifacts/hardware-validation/latest.md
+```
 
 ### IDE 构建
 
@@ -395,8 +433,8 @@ ADC/USBPD/DPDM/KEY
 在工具链已正确安装的前提下，常见构建入口是：
 
 ```bash
-cd PowerXCode/FreeRTOS/obj
-make -j10 all
+PATH="/Applications/MounRiver Studio 2.app/Contents/Resources/app/resources/darwin/components/WCH/Toolchain/RISC-V Embedded GCC/bin:$PATH" \
+  make -C PowerXCode/FreeRTOS/obj -j10 all
 ```
 
 清理命令：
@@ -408,12 +446,86 @@ make clean
 
 ### 当前下载/烧录说明
 
-当前仓库里还没有完全固定的命令行烧录脚本，因此更推荐：
+先确认板子已经以 WCH ISP USB 设备枚举：
 
-- 先在 IDE 内完成构建
-- 再通过你当前实际使用的下载方式把 `FreeRTOS.hex` 或 `FreeRTOS.elf` 烧录到板子
+```bash
+tools/check_wch_isp_device.sh
+```
 
-换句话说，当前仓库已经把“构建”路径收出来了，但“统一烧录脚本”还没有在仓库里正式固化。
+如果需要先启动检查、再手动让板子进 ISP，可以用等待模式：
+
+```bash
+tools/check_wch_isp_device.sh --wait 30
+```
+
+预检会更新 `artifacts/flash/isp-preflight.md`。只有看到 `4348:55e0` 或 `1a86:55e0`，才说明板子已经进入 WCH ISP/BOOT 下载模式，可以继续烧录。PX1 手动进入 ISP 时按住 `BTN2/BOOT` 再重新插入 USB；原理图中 `BTN2 (ISP)` 连接 `PB9/BOOT0`，`PB2/BOOT1` 也在 MCU 上引出。
+
+当前仓库已固化 `wchisp` 下载脚本：
+
+```bash
+tools/flash_powerx.sh
+```
+
+等待板子进入 ISP 后自动继续：
+
+```bash
+tools/flash_powerx.sh --wait 30
+```
+
+如果需要先开着命令再慢慢操作 `BTN2/BOOT` 和 USB-C，可以用无限等待模式；设备一枚举出来就会自动继续烧录：
+
+```bash
+tools/flash_powerx.sh --wait-forever
+```
+
+默认烧录：
+
+- `PowerXCode/FreeRTOS/obj/FreeRTOS.bin`
+
+脚本会先输出固件 SHA256，再执行 `wchisp info`。如果没有发现 `4348:55e0` 或 `1a86:55e0`，说明板子没有进入 WCH ISP/BOOT 下载模式，需要重新进入 ISP 后再执行。
+
+每次执行下载脚本都会更新 `artifacts/flash/latest.md`，记录固件 SHA、`wchisp` 路径、USB 枚举、串口列表和本次下载尝试状态。只有烧录成功时，脚本才会额外更新 `artifacts/flash/latest-success.md`。硬件验收 gate 默认检查 `latest-success.md`，只有状态为 `flashed` 且固件 SHA 与当前 `FreeRTOS.bin` 一致时，`flash-wchisp` 才算通过。
+
+硬件接入后一键闭环入口：
+
+```bash
+tools/run_powerx_real_device_closure.sh --wait 30
+```
+
+同样支持无限等待设备后继续完整闭环：
+
+```bash
+tools/run_powerx_real_device_closure.sh --wait-forever
+```
+
+这个脚本会串行执行 no-flash 软件 gate、逐项目标覆盖审计、WCH ISP 下载、硬件报告准备和最终目标审计。它不会伪造真机结论；如果 `artifacts/hardware-validation/latest.md` 还没有填入真实 PD/QC/按键/页面/稳定性结果，最终审计会继续失败。
+
+完整目标验收还需要真机报告。先用当前固件 SHA 填写模板：
+
+```bash
+tools/prepare_powerx_hardware_validation_report.sh --force
+```
+
+完成亮屏、9 页 UI、按钮、PD/QC 检测诱骗、CC/线缆、设置和 5 分钟无卡死验证后，把报告里的对应项勾选为 `[x]`，并填写板号、烧录时间、PD/QC 电源型号、INA226 实测结果、线缆/E-marker、UI/按键/设置/稳定性记录，再执行：
+
+```bash
+tools/check_powerx_hardware_validation.sh artifacts/hardware-validation/latest.md
+```
+
+如果需要把真机报告纳入完整 gate：
+
+```bash
+tools/run_powerx_goal_gate.sh --no-flash --hardware-report artifacts/hardware-validation/latest.md
+```
+
+最终目标完成前可以直接跑总审计入口：
+
+```bash
+tools/check_powerx_goal_completion.sh artifacts/hardware-validation/latest.md
+```
+
+这个脚本会串联 no-flash 软件 gate、9 页 UI 预览报告、`artifacts/flash/latest-success.md` 成功烧录证据和硬件验收报告；任一环节缺失都会失败。`artifacts/flash/latest.md` 仍会作为最近一次下载尝试记录显示在总审计报告里，便于排查后续 ISP 退出或 USB 枚举失败。
+每次执行后会更新 `artifacts/goal/latest.md`，里面有软件、UI、下载和真机报告四项状态。
 
 ### 常见构建问题
 
@@ -454,9 +566,9 @@ make clean
 
 这个仓库当前有一些已知边界，阅读代码时建议先知道：
 
-- `电流/功率` 的最终工程值仍依赖真实前端参数和标定
+- `电压/电流/功率` 目前来自 INA226，仍需要实机校准确认绝对精度
 - `纹波` 当前是趋势级，不是示波器级测量
-- `legacy charge` 仍以可扩展框架和请求模型为主
+- `legacy charge` 的 QC2/QC3 路径已接入，AFC/FCP 仍以可扩展框架和请求模型为主
 - `E-Marker` 当前以摘要信息为主
 - `obj/` 目录带有工程生成文件，后续是否继续纳入版本管理可以再收敛
 
@@ -468,7 +580,7 @@ make clean
 - `PD/QC/AFC/FCP` 实机调试
 - 统计页与更多 UI 细节
 - 协议快照合并策略完善
-- 构建、烧录、测试文档补齐
+- 下载模式和实机验证流程固化
 
 ## 14. Bring-up 建议顺序
 

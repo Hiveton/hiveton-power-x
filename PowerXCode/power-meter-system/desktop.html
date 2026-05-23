@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PowerX OS - 功率计管理系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            user-select: none;
+        }
+        
+        /* 桌面背景 */
+        #desktop {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #008080;
+            background-image: 
+                linear-gradient(45deg, #009090 25%, transparent 25%),
+                linear-gradient(-45deg, #009090 25%, transparent 25%),
+                linear-gradient(45deg, transparent 75%, #009090 75%),
+                linear-gradient(-45deg, transparent 75%, #009090 75%);
+            background-size: 4px 4px;
+            background-position: 0 0, 0 2px, 2px -2px, -2px 0px;
+            overflow: hidden;
+            font-family: "MS Sans Serif", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* 桌面图标 */
+        .desktop-icon {
+            position: absolute;
+            width: 75px;
+            text-align: center;
+            cursor: pointer;
+            padding: 4px;
+            border: 1px solid transparent;
+        }
+        .desktop-icon:hover {
+            border: 1px dotted #c0c0c0;
+        }
+        .desktop-icon.selected {
+            border: 1px dotted #c0c0c0;
+            background: rgba(0,0,128,0.3);
+        }
+        .desktop-icon.selected .icon-label {
+            background: #000080;
+            color: white;
+        }
+        .icon-image {
+            width: 32px;
+            height: 32px;
+            margin: 0 auto 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+        }
+        .icon-label {
+            font-size: 11px;
+            color: white;
+            text-shadow: 1px 1px 0 #000;
+            padding: 1px 2px;
+            word-break: break-word;
+            line-height: 1.2;
+        }
+
+        /* 窗口样式 */
+        .window {
+            position: absolute;
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
+            min-width: 200px;
+            min-height: 150px;
+            display: flex;
+            flex-direction: column;
+        }
+        .window.active {
+            z-index: 1000;
+        }
+        .window.inactive {
+            z-index: 100;
+        }
+        .window.maximized {
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: calc(100% - 28px) !important;
+        }
+
+        /* 标题栏 */
+        .window-titlebar {
+            background: linear-gradient(to right, #808080, #a0a0a0);
+            color: #c0c0c0;
+            padding: 2px 4px;
+            display: flex;
+            align-items: center;
+            cursor: default;
+        }
+        .window.active .window-titlebar {
+            background: linear-gradient(to right, #000080, #1084d0);
+            color: white;
+        }
+        .window-icon {
+            width: 16px;
+            height: 16px;
+            margin-right: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+        }
+        .window-title {
+            flex: 1;
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .window-buttons {
+            display: flex;
+            gap: 2px;
+        }
+        .win-btn {
+            width: 16px;
+            height: 14px;
+            border: 1px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            background: #c0c0c0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 9px;
+            color: black;
+            cursor: pointer;
+        }
+        .win-btn:active {
+            border-color: #808080 #ffffff #ffffff #808080;
+        }
+
+        /* 窗口内容 */
+        .window-content {
+            flex: 1;
+            overflow: auto;
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            margin: 2px;
+            background: #c0c0c0;
+            padding: 2px;
+        }
+
+        /* 调整大小手柄 */
+        .resize-handle {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 16px;
+            height: 16px;
+            cursor: se-resize;
+            background: linear-gradient(135deg, transparent 45%, #808080 45%, #808080 55%, transparent 55%),
+                        linear-gradient(135deg, transparent 65%, #808080 65%, #808080 75%, transparent 75%),
+                        linear-gradient(135deg, transparent 85%, #808080 85%, #808080 95%, transparent 95%);
+        }
+        .window.maximized .resize-handle {
+            display: none;
+        }
+
+        /* 菜单栏 */
+        .menubar {
+            background: #c0c0c0;
+            padding: 2px 4px;
+            display: flex;
+            gap: 8px;
+            font-size: 12px;
+            border-bottom: 1px solid #808080;
+        }
+        .menu-item {
+            padding: 2px 8px;
+            cursor: pointer;
+        }
+        .menu-item:hover {
+            background: #000080;
+            color: white;
+        }
+
+        /* 任务栏 */
+        #taskbar {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 28px;
+            background: #c0c0c0;
+            border-top: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            display: flex;
+            align-items: center;
+            padding: 0 2px;
+            z-index: 10000;
+        }
+        #start-btn {
+            height: 22px;
+            padding: 0 6px;
+            font-size: 12px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        #start-btn.active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+        }
+        .taskbar-divider {
+            width: 2px;
+            height: 22px;
+            border-left: 1px solid #808080;
+            border-right: 1px solid #ffffff;
+            margin: 0 4px;
+        }
+        #taskbar-items {
+            flex: 1;
+            display: flex;
+            gap: 2px;
+            overflow-x: auto;
+            padding: 0 4px;
+        }
+        .taskbar-item {
+            height: 22px;
+            padding: 0 8px;
+            font-size: 11px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            max-width: 160px;
+            overflow: hidden;
+        }
+        .taskbar-item.active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+            background: #d4d0c8;
+        }
+        .taskbar-item .icon {
+            font-size: 14px;
+        }
+        .taskbar-item .text {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        #system-tray {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 0 4px;
+            border: 1px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            height: 22px;
+            font-size: 11px;
+        }
+
+        /* 开始菜单 */
+        #start-menu {
+            position: fixed;
+            bottom: 28px;
+            left: 2px;
+            width: 200px;
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
+            display: none;
+            z-index: 10001;
+        }
+        #start-menu.show {
+            display: block;
+        }
+        .start-menu-header {
+            background: linear-gradient(to bottom, #000080, #1084d0);
+            color: white;
+            padding: 4px 8px;
+            font-size: 14px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .start-menu-item {
+            padding: 6px 12px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+        .start-menu-item:hover {
+            background: #000080;
+            color: white;
+        }
+        .start-menu-item .icon {
+            font-size: 20px;
+            width: 24px;
+            text-align: center;
+        }
+        .start-menu-divider {
+            height: 1px;
+            background: #808080;
+            margin: 4px 8px;
+            border-bottom: 1px solid #ffffff;
+        }
+
+        /* Win95 组件样式 */
+        .outset {
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
+            background: #c0c0c0;
+        }
+        .inset {
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+            background: #ffffff;
+        }
+        .win95-btn {
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            box-shadow: inset -1px -1px 0 #404040, inset 1px 1px 0 #dfdfdf;
+            background: #c0c0c0;
+            padding: 4px 12px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .win95-btn:active {
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+        }
+        .win95-btn-primary {
+            background: #0000ff;
+            color: white;
+            border-color: #5555ff #000080 #000080 #5555ff;
+        }
+        .win95-btn-primary:active {
+            border-color: #000080 #5555ff #5555ff #000080;
+        }
+        .win95-btn-success {
+            background: #00aa00;
+            color: white;
+            border-color: #00ff00 #006600 #006600 #00ff00;
+        }
+        .win95-btn-danger {
+            background: #ff0000;
+            color: white;
+            border-color: #ff5555 #800000 #800000 #ff5555;
+        }
+        .win95-group {
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            padding: 12px;
+            position: relative;
+            margin-top: 8px;
+        }
+        .win95-group-title {
+            position: absolute;
+            top: -9px;
+            left: 8px;
+            background: #c0c0c0;
+            padding: 0 4px;
+            font-size: 12px;
+        }
+        .win95-input {
+            border: 2px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            box-shadow: inset 1px 1px 0 #404040, inset -1px -1px 0 #dfdfdf;
+            background: #ffffff;
+            padding: 3px 6px;
+            font-size: 12px;
+        }
+        .win95-select {
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+            background: #ffffff;
+            padding: 2px 4px;
+            font-size: 12px;
+        }
+        .lcd-display {
+            background: #c0d4a0;
+            border: 3px solid;
+            border-color: #808080 #ffffff #ffffff #808080;
+            font-family: "Courier New", monospace;
+            font-size: 20px;
+            padding: 6px 12px;
+            text-align: right;
+            color: #000000;
+        }
+
+        /* 动画 */
+        @keyframes rainbow {
+            0% { color: #ff0000; }
+            17% { color: #ff8000; }
+            33% { color: #ffff00; }
+            50% { color: #00ff00; }
+            67% { color: #0080ff; }
+            83% { color: #8000ff; }
+            100% { color: #ff0000; }
+        }
+        .rainbow-text {
+            animation: rainbow 3s linear infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .pulse {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        .blink {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 16px;
+            height: 16px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #d4d0c8;
+            border: 2px solid #808080;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #c0c0c0;
+            border: 2px solid;
+            border-color: #ffffff #808080 #808080 #ffffff;
+        }
+    </style>
+</head>
+<body>
+    <!-- 桌面 -->
+    <div id="desktop">
+        <!-- 桌面图标 -->
+        <div class="desktop-icon" style="top: 20px; left: 20px;" data-app="monitor" data-title="实时监控">
+            <div class="icon-image">📟</div>
+            <div class="icon-label">实时监控</div>
+        </div>
+        <div class="desktop-icon" style="top: 100px; left: 20px;" data-app="devices" data-title="设备管理">
+            <div class="icon-image">💻</div>
+            <div class="icon-label">设备管理</div>
+        </div>
+        <div class="desktop-icon" style="top: 180px; left: 20px;" data-app="protocol" data-title="协议工具">
+            <div class="icon-image">🔌</div>
+            <div class="icon-label">协议工具</div>
+        </div>
+        <div class="desktop-icon" style="top: 260px; left: 20px;" data-app="emark" data-title="Emark监听">
+            <div class="icon-image">👂</div>
+            <div class="icon-label">Emark监听</div>
+        </div>
+        <div class="desktop-icon" style="top: 340px; left: 20px;" data-app="spoof" data-title="协议诱骗">
+            <div class="icon-image">🎭</div>
+            <div class="icon-label">协议诱骗</div>
+        </div>
+        <div class="desktop-icon" style="top: 420px; left: 20px;" data-app="export" data-title="数据导出">
+            <div class="icon-image">💾</div>
+            <div class="icon-label">数据导出</div>
+        </div>
+        <div class="desktop-icon" style="top: 500px; left: 20px;" data-app="charts" data-title="趋势分析">
+            <div class="icon-image">📊</div>
+            <div class="icon-label">趋势分析</div>
+        </div>
+        <div class="desktop-icon" style="top: 580px; left: 20px;" data-app="settings" data-title="系统设置">
+            <div class="icon-image">⚙️</div>
+            <div class="icon-label">系统设置</div>
+        </div>
+        <div class="desktop-icon" style="top: 20px; left: 110px;" data-app="network" data-title="网络配置">
+            <div class="icon-image">🌐</div>
+            <div class="icon-label">网络配置</div>
+        </div>
+        <div class="desktop-icon" style="top: 100px; left: 110px;" data-app="logs" data-title="系统日志">
+            <div class="icon-image">📋</div>
+            <div class="icon-label">系统日志</div>
+        </div>
+        <div class="desktop-icon" style="top: 180px; left: 110px;" data-app="calculator" data-title="计算器">
+            <div class="icon-image">🧮</div>
+            <div class="icon-label">计算器</div>
+        </div>
+        <div class="desktop-icon" style="top: 260px; left: 110px;" data-app="notepad" data-title="记事本">
+            <div class="icon-image">📝</div>
+            <div class="icon-label">记事本</div>
+        </div>
+
+        <!-- 窗口容器 -->
+        <div id="windows-container"></div>
+    </div>
+
+    <!-- 开始菜单 -->
+    <div id="start-menu">
+        <div class="start-menu-header">
+            <span style="font-size: 24px;">⚡</span>
+            <span>PowerX OS</span>
+        </div>
+        <div class="start-menu-item" onclick="openApp('monitor')">
+            <span class="icon">📟</span>
+            <span>实时监控</span>
+        </div>
+        <div class="start-menu-item" onclick="openApp('devices')">
+            <span class="icon">💻</span>
+            <span>设备管理</span>
+        </div>
+        <div class="start-menu-item" onclick="openApp('protocol')">
+            <span class="icon">🔌</span>
+            <span>协议工具</span>
+        </div>
+        <div class="start-menu-item" onclick="openApp('emark')">
+            <span class="icon">👂</span>
+            <span>Emark监听</span>
+        </div>
+        <div class="start-menu-item" onclick="openApp('spoof')">
+            <span class="icon">🎭</span>
+            <span>协议诱骗</span>
+        </div>
+        <div class="start-menu-item" onclick="openApp('charts')">
+            <span class="icon">📊</span>
+            <span>趋势分析</span>
+        </div>
+        <div class="start-menu-divider"></div>
+        <div class="start-menu-item" onclick="openApp('settings')">
+            <span class="icon">⚙️</span>
+            <span>系统设置</span>
+        </div>
+        <div class="start-menu-item" onclick="alert('系统关机')">
+            <span class="icon">🔴</span>
+            <span>关闭系统</span>
+        </div>
+    </div>
+
+    <!-- 任务栏 -->
+    <div id="taskbar">
+        <button id="start-btn" class="win95-btn">
+            <span style="font-size: 16px;">⚡</span>
+            <span>Start</span>
+        </button>
+        <div class="taskbar-divider"></div>
+        <div id="taskbar-items"></div>
+        <div class="taskbar-divider"></div>
+        <div id="system-tray">
+            <span>🔊</span>
+            <span id="clock">12:00 PM</span>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let windows = {};
+        let windowCount = 0;
+        let activeWindow = null;
+        let zIndexCounter = 100;
+
+        // 应用内容定义
+        const appContents = {
+            monitor: {
+                icon: '📟',
+                title: '实时监控 - PM-001',
+                width: 600,
+                height: 500,
+                content: `
+                    <div class="p-2">
+                        <div class="grid grid-cols-3 gap-2 mb-3">
+                            <div class="win95-group">
+                                <span class="win95-group-title">⚡ 电压 (V)</span>
+                                <div class="lcd-display" id="voltage-disp">05.00</div>
+                            </div>
+                            <div class="win95-group">
+                                <span class="win95-group-title">🔌 电流 (A)</span>
+                                <div class="lcd-display" id="current-disp">02.40</div>
+                            </div>
+                            <div class="win95-group">
+                                <span class="win95-group-title">💪 功率 (W)</span>
+                                <div class="lcd-display" id="power-disp">012.0</div>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-4 gap-1 mb-3 text-xs text-center">
+                            <div class="inset p-1">
+                                <div class="text-gray-500">最大值</div>
+                                <div class="font-bold" id="max-p">15.2W</div>
+                            </div>
+                            <div class="inset p-1">
+                                <div class="text-gray-500">最小值</div>
+                                <div class="font-bold" id="min-p">8.5W</div>
+                            </div>
+                            <div class="inset p-1">
+                                <div class="text-gray-500">平均值</div>
+                                <div class="font-bold" id="avg-p">11.3W</div>
+                            </div>
+                            <div class="inset p-1">
+                                <div class="text-gray-500">累计</div>
+                                <div class="font-bold" id="total-p">45.6Wh</div>
+                            </div>
+                        </div>
+                        <div class="win95-group">
+                            <span class="win95-group-title">📈 实时趋势</span>
+                            <div class="inset bg-white p-1">
+                                <canvas id="chart-monitor" height="150"></canvas>
+                            </div>
+                        </div>
+                        <div class="mt-2 flex gap-2 justify-center">
+                            <button class="win95-btn-success win95-btn" onclick="startMonitor()">▶ 开始</button>
+                            <button class="win95-btn-danger win95-btn" onclick="stopMonitor()">⏹ 停止</button>
+                            <button class="win95-btn win95-btn-primary">💾 保存</button>
+                        </div>
+                    </div>
+                `
+            },
+            devices: {
+                icon: '💻',
+                title: '设备管理器',
+                width: 500,
+                height: 450,
+                content: `
+                    <div class="p-2 h-full flex flex-col">
+                        <div class="flex gap-2 mb-2">
+                            <button class="win95-btn">➕ 添加</button>
+                            <button class="win95-btn">🔍 搜索</button>
+                            <button class="win95-btn">🔄 刷新</button>
+                        </div>
+                        <div class="inset flex-1 overflow-auto">
+                            <table class="w-full text-xs">
+                                <thead class="bg-gray-400">
+                                    <tr>
+                                        <th class="p-1 text-left border border-gray-500">设备ID</th>
+                                        <th class="p-1 text-left border border-gray-500">状态</th>
+                                        <th class="p-1 text-left border border-gray-500">电压</th>
+                                        <th class="p-1 text-left border border-gray-500">电流</th>
+                                        <th class="p-1 text-left border border-gray-500">功率</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="bg-white">
+                                        <td class="p-1 border border-gray-400">PM-001</td>
+                                        <td class="p-1 border border-gray-400 text-green-600">● 在线</td>
+                                        <td class="p-1 border border-gray-400">5.00V</td>
+                                        <td class="p-1 border border-gray-400">2.40A</td>
+                                        <td class="p-1 border border-gray-400">12.0W</td>
+                                    </tr>
+                                    <tr class="bg-gray-100">
+                                        <td class="p-1 border border-gray-400">PM-002</td>
+                                        <td class="p-1 border border-gray-400 text-green-600">● 在线</td>
+                                        <td class="p-1 border border-gray-400">9.00V</td>
+                                        <td class="p-1 border border-gray-400">1.50A</td>
+                                        <td class="p-1 border border-gray-400">13.5W</td>
+                                    </tr>
+                                    <tr class="bg-white">
+                                        <td class="p-1 border border-gray-400">PM-003</td>
+                                        <td class="p-1 border border-gray-400 text-red-600">● 离线</td>
+                                        <td class="p-1 border border-gray-400">--</td>
+                                        <td class="p-1 border border-gray-400">--</td>
+                                        <td class="p-1 border border-gray-400">--</td>
+                                    </tr>
+                                    <tr class="bg-gray-100">
+                                        <td class="p-1 border border-gray-400">PM-004</td>
+                                        <td class="p-1 border border-gray-400 text-green-600">● 在线</td>
+                                        <td class="p-1 border border-gray-400">12.00V</td>
+                                        <td class="p-1 border border-gray-400">3.00A</td>
+                                        <td class="p-1 border border-gray-400">36.0W</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="mt-2 text-xs">
+                            总计: 4台设备 | 在线: 3台 | 离线: 1台
+                        </div>
+                    </div>
+                `
+            },
+            protocol: {
+                icon: '🔌',
+                title: '协议检测工具',
+                width: 550,
+                height: 400,
+                content: `
+                    <div class="p-2">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div class="win95-group">
+                                <span class="win95-group-title">PD 协议状态</span>
+                                <div class="inset bg-black text-green-400 font-mono text-xs p-2 h-32">
+                                    <div>Profile: <span class="text-yellow-400">PD3.1</span></div>
+                                    <div>Voltage: 5.0V</div>
+                                    <div>Current: 3.0A</div>
+                                    <div>Power: 15W</div>
+                                    <div class="mt-1">--- Capabilities ---</div>
+                                    <div>5V@3A ✓</div>
+                                    <div>9V@3A ✓</div>
+                                    <div>12V@3A ✓</div>
+                                    <div>15V@3A ✓</div>
+                                    <div>20V@5A ✓</div>
+                                </div>
+                            </div>
+                            <div class="win95-group">
+                                <span class="win95-group-title">QC 协议状态</span>
+                                <div class="inset bg-black text-green-400 font-mono text-xs p-2 h-32">
+                                    <div>Version: <span class="text-yellow-400">QC 5.0</span></div>
+                                    <div>Status: <span class="text-green-400">CONNECTED</span></div>
+                                    <div>Mode: Class B</div>
+                                    <div>Max Power: 100W</div>
+                                    <div class="mt-1">--- Voltage Steps ---</div>
+                                    <div>3.3V-5.9V: 20mV ✓</div>
+                                    <div>5.9V-20V: 20mV ✓</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="win95-group mt-2">
+                            <span class="win95-group-title">协议测试</span>
+                            <div class="flex gap-2">
+                                <button class="win95-btn">PD 识别</button>
+                                <button class="win95-btn">QC 握手</button>
+                                <button class="win95-btn">AFC 检测</button>
+                                <button class="win95-btn">FCP 检测</button>
+                            </div>
+                        </div>
+                    </div>
+                `
+            },
+            emark: {
+                icon: '👂',
+                title: 'Emark 数据监听',
+                width: 500,
+                height: 400,
+                content: `
+                    <div class="p-2 h-full flex flex-col">
+                        <div class="flex items-center gap-2 mb-2">
+                            <input type="checkbox" id="emark-enable" class="w-4 h-4">
+                            <label for="emark-enable">启用监听</label>
+                            <button class="win95-btn ml-auto">🗑️ 清空</button>
+                        </div>
+                        <div class="inset bg-black text-green-400 font-mono text-xs p-2 flex-1 overflow-auto" id="emark-output">
+                            <div class="text-gray-500">等待数据...</div>
+                        </div>
+                        <div class="mt-2 flex gap-2">
+                            <button class="win95-btn">💾 保存日志</button>
+                            <button class="win95-btn">📋 复制</button>
+                        </div>
+                    </div>
+                `
+            },
+            spoof: {
+                icon: '🎭',
+                title: '协议诱骗工具',
+                width: 400,
+                height: 350,
+                content: `
+                    <div class="p-2">
+                        <div class="win95-group">
+                            <span class="win95-group-title">选择诱骗协议</span>
+                            <select class="win95-select w-full mb-2" id="spoof-protocol">
+                                <option>PD 5V@3A</option>
+                                <option>PD 9V@3A</option>
+                                <option>PD 12V@3A</option>
+                                <option>PD 15V@3A</option>
+                                <option>PD 20V@5A</option>
+                                <option>QC 5V</option>
+                                <option>QC 9V</option>
+                                <option>QC 12V</option>
+                                <option>AFC 9V</option>
+                                <option>FCP 9V</option>
+                            </select>
+                            <button class="win95-btn-primary win95-btn w-full" onclick="executeSpoof()">
+                                ⚡ 执行诱骗
+                            </button>
+                        </div>
+                        <div class="win95-group mt-2">
+                            <span class="win95-group-title">诱骗历史</span>
+                            <div class="inset h-24 overflow-auto text-xs p-1" id="spoof-history">
+                                <div class="text-gray-500">暂无记录</div>
+                            </div>
+                        </div>
+                    </div>
+                `
+            },
+            export: {
+                icon: '💾',
+                title: '数据导出',
+                width: 450,
+                height: 350,
+                content: `
+                    <div class="p-2">
+                        <div class="win95-group">
+                            <span class="win95-group-title">导出格式</span>
+                            <div class="space-y-1">
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="format" value="csv" checked class="w-4 h-4">
+                                    <span>CSV 格式</span>
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="format" value="excel" class="w-4 h-4">
+                                    <span>Excel 格式</span>
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="format" value="json" class="w-4 h-4">
+                                    <span>JSON 格式</span>
+                                </label>
+                                <label class="flex items-center gap-2">
+                                    <input type="radio" name="format" value="xml" class="w-4 h-4">
+                                    <span>XML 格式</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="win95-group mt-2">
+                            <span class="win95-group-title">时间范围</span>
+                            <div class="flex gap-2">
+                                <input type="datetime-local" class="win95-input flex-1 text-xs">
+                                <span>至</span>
+                                <input type="datetime-local" class="win95-input flex-1 text-xs">
+                            </div>
+                        </div>
+                        <button class="win95-btn-primary win95-btn w-full mt-3" onclick="doExport()">
+                            📥 开始导出
+                        </button>
+                    </div>
+                `
+            },
+            charts: {
+                icon: '📊',
+                title: '趋势分析',
+                width: 700,
+                height: 550,
+                content: `
+                    <div class="p-2 h-full flex flex-col">
+                        <div class="flex gap-2 mb-2">
+                            <select class="win95-select text-xs">
+                                <option>最近1小时</option>
+                                <option>最近24小时</option>
+                                <option>最近7天</option>
+                                <option>最近30天</option>
+                            </select>
+                            <button class="win95-btn text-xs">🔄 刷新</button>
+                            <button class="win95-btn text-xs">💾 保存图表</button>
+                        </div>
+                        <div class="inset bg-white flex-1 p-2">
+                            <canvas id="chart-trend"></canvas>
+                        </div>
+                    </div>
+                `
+            },
+            settings: {
+                icon: '⚙️',
+                title: '系统设置',
+                width: 450,
+                height: 400,
+                content: `
+                    <div class="p-2">
+                        <div class="win95-group">
+                            <span class="win95-group-title">采样设置</span>
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <span>采样周期</span>
+                                    <select class="win95-select w-32">
+                                        <option>自动</option>
+                                        <option>1秒</option>
+                                        <option>10秒</option>
+                                        <option>1分钟</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span>缓冲区大小</span>
+                                    <select class="win95-select w-32">
+                                        <option>1000点</option>
+                                        <option>5000点</option>
+                                        <option>10000点</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="win95-group mt-2">
+                            <span class="win95-group-title">网络设置</span>
+                            <div class="space-y-2">
+                                <div class="flex items-center justify-between">
+                                    <span>连接模式</span>
+                                    <select class="win95-select w-32">
+                                        <option>USB</option>
+                                        <option>WiFi</option>
+                                        <option>以太网</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center justify-between">
+                                    <span>设备IP</span>
+                                    <input type="text" class="win95-input w-32 text-xs" value="192.168.1.100">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3 flex justify-end gap-2">
+                            <button class="win95-btn">确定</button>
+                            <button class="win95-btn">取消</button>
+                            <button class="win95-btn">应用</button>
+                        </div>
+                    </div>
+                `
+            },
+            network: {
+                icon: '🌐',
+                title: '网络配置',
+                width: 400,
+                height: 350,
+                content: `
+                    <div class="p-2">
+                        <div class="win95-group">
+                            <span class="win95-group-title">WiFi 设置</span>
+                            <div class="space-y-2">
+                                <div>
+                                    <span class="text-xs">SSID</span>
+                                    <input type="text" class="win95-input w-full text-xs" value="PowerX-Network">
+                                </div>
+                                <div>
+                                    <span class="text-xs">密码</span>
+                                    <input type="password" class="win95-input w-full text-xs" value="********">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="win95-group mt-2">
+                            <span class="win95-group-title">设备IP</span>
+                            <div class="inset p-2 text-xs font-mono">
+                                <div>IP: 192.168.1.100</div>
+                                <div>掩码: 255.255.255.0</div>
+                                <div>网关: 192.168.1.1</div>
+                                <div>MAC: AA:BB:CC:DD:EE:FF</div>
+                            </div>
+                        </div>
+                    </div>
+                `
+            },
+            logs: {
+                icon: '📋',
+                title: '系统日志',
+                width: 600,
+                height: 450,
+                content: `
+                    <div class="p-2 h-full flex flex-col">
+                        <div class="flex gap-2 mb-2">
+                            <button class="win95-btn text-xs">🗑️ 清空</button>
+                            <button class="win95-btn text-xs">💾 保存</button>
+                            <button class="win95-btn text-xs">🔍 搜索</button>
+                        </div>
+                        <div class="inset bg-white flex-1 overflow-auto p-2 font-mono text-xs">
+                            <div>[21:07:45] 系统启动完成</div>
+                            <div>[21:07:46] 连接设备 PM-001</div>
+                            <div>[21:07:47] 连接设备 PM-002</div>
+                            <div>[21:07:48] 连接设备 PM-004</div>
+                            <div class="text-red-600">[21:08:15] 设备 PM-003 连接超时</div>
+                            <div>[21:08:20] 开始数据采样</div>
+                            <div>[21:08:25] PD协议识别成功</div>
+                            <div>[21:08:30] QC协议识别成功</div>
+                        </div>
+                    </div>
+                `
+            },
+            calculator: {
+                icon: '🧮',
+                title: '计算器',
+                width: 250,
+                height: 320,
+                content: `
+                    <div class="p-2">
+                        <div class="inset mb-2">
+                            <input type="text" class="w-full p-2 text-right text-xl font-mono" value="0" readonly id="calc-display">
+                        </div>
+                        <div class="grid grid-cols-4 gap-1">
+                            <button class="win95-btn p-2">7</button>
+                            <button class="win95-btn p-2">8</button>
+                            <button class="win95-btn p-2">9</button>
+                            <button class="win95-btn p-2">/</button>
+                            <button class="win95-btn p-2">4</button>
+                            <button class="win95-btn p-2">5</button>
+                            <button class="win95-btn p-2">6</button>
+                            <button class="win95-btn p-2">*</button>
+                            <button class="win95-btn p-2">1</button>
+                            <button class="win95-btn p-2">2</button>
+                            <button class="win95-btn p-2">3</button>
+                            <button class="win95-btn p-2">-</button>
+                            <button class="win95-btn p-2">0</button>
+                            <button class="win95-btn p-2">.</button>
+                            <button class="win95-btn p-2">=</button>
+                            <button class="win95-btn p-2">+</button>
+                        </div>
+                    </div>
+                `
+            },
+            notepad: {
+                icon: '📝',
+                title: '记事本',
+                width: 500,
+                height: 400,
+                content: `
+                    <div class="h-full flex flex-col">
+                        <div class="menubar">
+                            <div class="menu-item">文件(F)</div>
+                            <div class="menu-item">编辑(E)</div>
+                            <div class="menu-item">搜索(S)</div>
+                            <div class="menu-item">帮助(H)</div>
+                        </div>
+                        <textarea class="flex-1 w-full p-2 font-mono text-sm resize-none border-none outline-none" 
+                            placeholder="在此输入文本...">PowerX 功率计管理系统
+===================
+
+设备列表:
+- PM-001: 在线, 5V/2.4A
+- PM-002: 在线, 9V/1.5A
+- PM-003: 离线
+- PM-004: 在线, 12V/3A
+
+备注:
+1. 定期检查设备连接状态
+2. 注意功率过载保护
+3. 及时导出历史数据</textarea>
+                    </div>
+                `
+            }
+        };
+
+        // 时钟更新
+        function updateClock() {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes().toString().padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const displayHours = hours % 12 || 12;
+            document.getElementById('clock').textContent = `${displayHours}:${minutes} ${ampm}`;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // 开始菜单
+        document.getElementById('start-btn').addEventListener('click', function(e) {
+            e.stopPropagation();
+            this.classList.toggle('active');
+            document.getElementById('start-menu').classList.toggle('show');
+        });
+
+        document.addEventListener('click', function() {
+            document.getElementById('start-btn').classList.remove('active');
+            document.getElementById('start-menu').classList.remove('show');
+        });
+
+        document.getElementById('start-menu').addEventListener('click', function(e) {
+            e.stopPropagation();
+        });
+
+        // 桌面图标交互
+        let selectedIcon = null;
+        document.querySelectorAll('.desktop-icon').forEach(icon => {
+            icon.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (selectedIcon) {
+                    selectedIcon.classList.remove('selected');
+                }
+                this.classList.add('selected');
+                selectedIcon = this;
+            });
+
+            icon.addEventListener('dblclick', function() {
+                const app = this.dataset.app;
+                const title = this.dataset.title;
+                openApp(app, title);
+            });
+        });
+
+        document.getElementById('desktop').addEventListener('click', function() {
+            if (selectedIcon) {
+                selectedIcon.classList.remove('selected');
+                selectedIcon = null;
+            }
+        });
+
+        // 打开应用
+        function openApp(appId, customTitle) {
+            const app = appContents[appId];
+            if (!app) return;
+
+            windowCount++;
+            const windowId = `win-${windowCount}`;
+            const title = customTitle || app.title;
+
+            // 计算窗口位置（级联）
+            const offset = (windowCount % 5) * 30;
+
+            // 创建窗口
+            const windowEl = document.createElement('div');
+            windowEl.className = 'window active';
+            windowEl.id = windowId;
+            windowEl.style.width = app.width + 'px';
+            windowEl.style.height = app.height + 'px';
+            windowEl.style.left = (100 + offset) + 'px';
+            windowEl.style.top = (50 + offset) + 'px';
+            windowEl.style.zIndex = ++zIndexCounter;
+
+            windowEl.innerHTML = `
+                <div class="window-titlebar" onmousedown="startDrag(event, '${windowId}')">
+                    <div class="window-icon">${app.icon}</div>
+                    <div class="window-title">${title}</div>
+                    <div class="window-buttons">
+                        <div class="win-btn" onclick="minimizeWindow('${windowId}')">_</div>
+                        <div class="win-btn" onclick="maximizeWindow('${windowId}')">□</div>
+                        <div class="win-btn" onclick="closeWindow('${windowId}')">×</div>
+                    </div>
+                </div>
+                <div class="window-content">${app.content}</div>
+                <div class="resize-handle" onmousedown="startResize(event, '${windowId}')"></div>
+            `;
+
+            document.getElementById('windows-container').appendChild(windowEl);
+
+            // 添加到任务栏
+            const taskbarItem = document.createElement('div');
+            taskbarItem.className = 'taskbar-item active outset';
+            taskbarItem.id = `task-${windowId}`;
+            taskbarItem.innerHTML = `<span class="icon">${app.icon}</span><span class="text">${title}</span>`;
+            taskbarItem.onclick = () => focusWindow(windowId);
+            document.getElementById('taskbar-items').appendChild(taskbarItem);
+
+            // 窗口激活
+            windowEl.addEventListener('mousedown', () => focusWindow(windowId));
+
+            // 保存窗口信息
+            windows[windowId] = {
+                element: windowEl,
+                taskbarItem: taskbarItem,
+                icon: app.icon,
+                title: title,
+                minimized: false,
+                maximized: false
+            };
+
+            activeWindow = windowId;
+            updateTaskbar();
+
+            // 初始化图表（如果有）
+            setTimeout(() => {
+                if (appId === 'monitor') {
+                    initMonitorChart();
+                } else if (appId === 'charts') {
+                    initTrendChart();
+                }
+            }, 100);
+        }
+
+        // 窗口操作
+        function closeWindow(windowId) {
+            const win = windows[windowId];
+            if (win) {
+                win.element.remove();
+                win.taskbarItem.remove();
+                delete windows[windowId];
+                if (activeWindow === windowId) {
+                    activeWindow = null;
+                }
+            }
+        }
+
+        function minimizeWindow(windowId) {
+            const win = windows[windowId];
+            if (win) {
+                win.element.style.display = 'none';
+                win.minimized = true;
+                win.taskbarItem.classList.remove('active');
+                if (activeWindow === windowId) {
+                    activeWindow = null;
+                }
+            }
+        }
+
+        function maximizeWindow(windowId) {
+            const win = windows[windowId];
+            if (win) {
+                win.maximized = !win.maximized;
+                if (win.maximized) {
+                    win.element.classList.add('maximized');
+                } else {
+                    win.element.classList.remove('maximized');
+                }
+            }
+        }
+
+        function focusWindow(windowId) {
+            const win = windows[windowId];
+            if (!win) return;
+
+            // 显示窗口
+            if (win.minimized) {
+                win.element.style.display = 'flex';
+                win.minimized = false;
+            }
+
+            // 更新z-index
+            win.element.style.zIndex = ++zIndexCounter;
+            win.element.classList.add('active');
+            win.element.classList.remove('inactive');
+            win.taskbarItem.classList.add('active');
+
+            // 更新其他窗口
+            Object.keys(windows).forEach(id => {
+                if (id !== windowId) {
+                    windows[id].element.classList.remove('active');
+                    windows[id].element.classList.add('inactive');
+                    windows[id].taskbarItem.classList.remove('active');
+                }
+            });
+
+            activeWindow = windowId;
+        }
+
+        function updateTaskbar() {
+            // 任务栏更新逻辑
+        }
+
+        // 拖拽功能
+        let dragWindow = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        function startDrag(e, windowId) {
+            const win = windows[windowId];
+            if (!win || win.maximized) return;
+
+            dragWindow = win.element;
+            const rect = dragWindow.getBoundingClientRect();
+            dragOffsetX = e.clientX - rect.left;
+            dragOffsetY = e.clientY - rect.top;
+
+            document.addEventListener('mousemove', onDrag);
+            document.addEventListener('mouseup', stopDrag);
+            focusWindow(windowId);
+        }
+
+        function onDrag(e) {
+            if (!dragWindow) return;
+            dragWindow.style.left = (e.clientX - dragOffsetX) + 'px';
+            dragWindow.style.top = (e.clientY - dragOffsetY) + 'px';
+        }
+
+        function stopDrag() {
+            dragWindow = null;
+            document.removeEventListener('mousemove', onDrag);
+            document.removeEventListener('mouseup', stopDrag);
+        }
+
+        // 调整大小功能
+        let resizeWindow = null;
+        let resizeStartX = 0;
+        let resizeStartY = 0;
+        let resizeStartWidth = 0;
+        let resizeStartHeight = 0;
+
+        function startResize(e, windowId) {
+            const win = windows[windowId];
+            if (!win) return;
+
+            resizeWindow = win.element;
+            resizeStartX = e.clientX;
+            resizeStartY = e.clientY;
+            resizeStartWidth = resizeWindow.offsetWidth;
+            resizeStartHeight = resizeWindow.offsetHeight;
+
+            document.addEventListener('mousemove', onResize);
+            document.addEventListener('mouseup', stopResize);
+            e.preventDefault();
+        }
+
+        function onResize(e) {
+            if (!resizeWindow) return;
+            const newWidth = resizeStartWidth + (e.clientX - resizeStartX);
+            const newHeight = resizeStartHeight + (e.clientY - resizeStartY);
+            resizeWindow.style.width = Math.max(200, newWidth) + 'px';
+            resizeWindow.style.height = Math.max(150, newHeight) + 'px';
+        }
+
+        function stopResize() {
+            resizeWindow = null;
+            document.removeEventListener('mousemove', onResize);
+            document.removeEventListener('mouseup', stopResize);
+        }
+
+        // 实时监控图表
+        let monitorChart = null;
+        let monitorInterval = null;
+
+        function initMonitorChart() {
+            const canvas = document.getElementById('chart-monitor');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const data = Array.from({length: 50}, () => 10 + Math.random() * 5);
+
+            monitorChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 50}, (_, i) => i),
+                    datasets: [{
+                        label: '功率 (W)',
+                        data: data,
+                        borderColor: '#0000ff',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { display: false },
+                        y: { min: 0, max: 20 }
+                    }
+                }
+            });
+        }
+
+        function startMonitor() {
+            if (monitorInterval) return;
+            monitorInterval = setInterval(() => {
+                const voltage = (4.8 + Math.random() * 0.4).toFixed(2);
+                const current = (2.0 + Math.random() * 0.8).toFixed(2);
+                const power = (voltage * current).toFixed(1);
+
+                const vd = document.getElementById('voltage-disp');
+                const cd = document.getElementById('current-disp');
+                const pd = document.getElementById('power-disp');
+
+                if (vd) vd.textContent = voltage.padStart(5, '0');
+                if (cd) cd.textContent = current.padStart(5, '0');
+                if (pd) pd.textContent = power.padStart(6, '0');
+
+                if (monitorChart) {
+                    monitorChart.data.datasets[0].data.shift();
+                    monitorChart.data.datasets[0].data.push(parseFloat(power));
+                    monitorChart.update('none');
+                }
+            }, 100);
+        }
+
+        function stopMonitor() {
+            if (monitorInterval) {
+                clearInterval(monitorInterval);
+                monitorInterval = null;
+            }
+        }
+
+        // 趋势图表
+        function initTrendChart() {
+            const canvas = document.getElementById('chart-trend');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array.from({length: 24}, (_, i) => `${i}:00`),
+                    datasets: [
+                        {
+                            label: '电压',
+                            data: Array.from({length: 24}, () => 4.8 + Math.random()),
+                            borderColor: '#0000ff',
+                            backgroundColor: 'rgba(0,0,255,0.1)',
+                            borderWidth: 2
+                        },
+                        {
+                            label: '电流',
+                            data: Array.from({length: 24}, () => 2 + Math.random()),
+                            borderColor: '#ff0000',
+                            backgroundColor: 'rgba(255,0,0,0.1)',
+                            borderWidth: 2
+                        },
+                        {
+                            label: '功率',
+                            data: Array.from({length: 24}, () => 10 + Math.random() * 5),
+                            borderColor: '#00aa00',
+                            backgroundColor: 'rgba(0,170,0,0.1)',
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { usePointStyle: false, boxWidth: 20 }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 诱骗功能
+        function executeSpoof() {
+            const protocol = document.getElementById('spoof-protocol')?.value || 'PD 5V@3A';
+            const history = document.getElementById('spoof-history');
+            if (history) {
+                const time = new Date().toLocaleTimeString();
+                history.innerHTML = `<div>[${time}] 执行诱骗: ${protocol}</div>` + history.innerHTML;
+            }
+        }
+
+        // 导出功能
+        function doExport() {
+            alert('正在导出数据...\n格式: CSV\n时间范围: 2026-04-01 至 2026-04-10');
+        }
+
+        // 初始化：桌面保持干净，不自动打开任何窗口
+        window.onload = function() {
+            console.log('PowerX OS 启动完成');
+        };
+    </script>
+</body>
+</html>

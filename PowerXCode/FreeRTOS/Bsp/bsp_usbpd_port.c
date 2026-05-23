@@ -18,7 +18,11 @@ __attribute__((aligned(4))) static uint8_t g_pd_rx_buf[34];
 __attribute__((aligned(4))) static uint8_t g_pd_tx_buf[34];
 static uint8_t g_pd_ack_buf[2];
 static uint8_t g_pd_rx_length;
+static uint8_t g_pd_rx_candidate_length;
 static uint8_t g_pd_message_pending;
+static uint8_t g_pd_ack_pending;
+static uint8_t g_pd_ack_sop;
+static uint8_t g_pd_cc_orientation;
 static volatile uint8_t g_pd_detach_pending;
 
 static void bsp_usbpd_port_release_cc_line(void)
@@ -27,7 +31,7 @@ static void bsp_usbpd_port_release_cc_line(void)
     USBPD->PORT_CC2 &= ~CC_LVE;
 }
 
-static void bsp_usbpd_port_enter_rx_mode(void)
+static void bsp_usbpd_port_prepare_rx_hw(void)
 {
     USBPD->CONFIG |= PD_ALL_CLR;
     USBPD->CONFIG &= ~PD_ALL_CLR;
@@ -36,7 +40,19 @@ static void bsp_usbpd_port_enter_rx_mode(void)
     USBPD->CONTROL &= ~PD_TX_EN;
     USBPD->BMC_CLK_CNT = UPD_TMR_RX_96M;
     USBPD->CONTROL |= BMC_START;
+}
+
+static void bsp_usbpd_port_enter_rx_mode(void)
+{
+    bsp_usbpd_port_prepare_rx_hw();
     NVIC_EnableIRQ(USBPD_IRQn);
+}
+
+static void bsp_usbpd_port_pause_rx_mode(void)
+{
+    bsp_usbpd_port_release_cc_line();
+    USBPD->CONFIG &= ~(IE_RX_ACT | IE_RX_RESET | IE_TX_END);
+    NVIC_DisableIRQ(USBPD_IRQn);
 }
 
 static void bsp_usbpd_port_set_sink_mode(void)
@@ -89,6 +105,7 @@ static void bsp_usbpd_port_refresh_orientation(void)
     uint8_t orientation;
 
     orientation = bsp_usbpd_port_detect_orientation();
+    g_pd_cc_orientation = orientation;
     if (orientation == 2U)
     {
         USBPD->CONFIG |= CC_SEL;
@@ -118,6 +135,18 @@ static void bsp_usbpd_port_send_packet(uint8_t *packet, uint8_t length, uint8_t 
     USBPD->STATUS &= BMC_AUX_INVALID;
     USBPD->CONTROL |= BMC_START;
 }
+
+static void bsp_usbpd_port_enable_cc_switch(void)
+{
+    GPIO_InitTypeDef gpio_init = { 0 };
+
+    RCC_PB2PeriphClockCmd(PX1_USBPD_CC_EN_GPIO_CLOCK, ENABLE);
+    gpio_init.GPIO_Pin = PX1_USBPD_CC_EN_PIN;
+    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(PX1_USBPD_CC_EN_GPIO, &gpio_init);
+    GPIO_SetBits(PX1_USBPD_CC_EN_GPIO, PX1_USBPD_CC_EN_PIN);
+}
 #endif
 
 void bsp_usbpd_port_init(void)
@@ -129,10 +158,15 @@ void bsp_usbpd_port_init(void)
         memset(g_pd_rx_buf, 0, sizeof(g_pd_rx_buf));
         memset(g_pd_tx_buf, 0, sizeof(g_pd_tx_buf));
         g_pd_rx_length = 0U;
+        g_pd_rx_candidate_length = 0U;
         g_pd_message_pending = 0U;
+        g_pd_ack_pending = 0U;
+        g_pd_ack_sop = UPD_SOP0;
+        g_pd_cc_orientation = 0U;
         g_pd_detach_pending = 0U;
         RCC_PB2PeriphClockCmd(PX1_USBPD_CC_GPIO_CLOCK | PX1_USBPD_AFIO_CLOCK, ENABLE);
         RCC_HBPeriphClockCmd(RCC_HBPeriph_USBPD, ENABLE);
+        bsp_usbpd_port_enable_cc_switch();
 
         gpio_init.GPIO_Pin = PX1_USBPD_CC1_PIN | PX1_USBPD_CC2_PIN;
         gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
@@ -184,6 +218,15 @@ uint8_t bsp_usbpd_port_fetch_rx_packet(uint8_t *packet, uint8_t *length)
     return fetch_ok;
 }
 
+void bsp_usbpd_port_resume_rx(void)
+{
+#if defined(__riscv)
+    bsp_usbpd_port_set_sink_mode();
+    bsp_usbpd_port_refresh_orientation();
+    bsp_usbpd_port_enter_rx_mode();
+#endif
+}
+
 uint8_t bsp_usbpd_port_fetch_detach(void)
 {
     uint8_t detach_pending;
@@ -203,7 +246,16 @@ uint8_t bsp_usbpd_port_fetch_detach(void)
     return detach_pending;
 }
 
-uint8_t bsp_usbpd_port_transmit_sop(const uint8_t *packet, uint8_t length)
+uint8_t bsp_usbpd_port_current_cc(void)
+{
+#if defined(__riscv)
+    return g_pd_cc_orientation;
+#else
+    return 0U;
+#endif
+}
+
+static uint8_t bsp_usbpd_port_transmit_packet(const uint8_t *packet, uint8_t length, uint8_t sop)
 {
 #if defined(__riscv)
     uint8_t got_goodcrc;
@@ -218,7 +270,7 @@ uint8_t bsp_usbpd_port_transmit_sop(const uint8_t *packet, uint8_t length)
     NVIC_DisableIRQ(USBPD_IRQn);
     USBPD->CONFIG |= IE_TX_END;
     USBPD->STATUS |= IF_TX_END;
-    bsp_usbpd_port_send_packet(g_pd_tx_buf, length, UPD_SOP0);
+    bsp_usbpd_port_send_packet(g_pd_tx_buf, length, sop);
 
     {
         uint32_t guard;
@@ -233,14 +285,13 @@ uint8_t bsp_usbpd_port_transmit_sop(const uint8_t *packet, uint8_t length)
         {
             bsp_usbpd_port_release_cc_line();
             bsp_usbpd_port_enter_rx_mode();
-            NVIC_EnableIRQ(USBPD_IRQn);
             return 0U;
         }
     }
 
     USBPD->STATUS |= IF_TX_END;
     bsp_usbpd_port_release_cc_line();
-    bsp_usbpd_port_enter_rx_mode();
+    bsp_usbpd_port_prepare_rx_hw();
 
     {
         uint32_t guard;
@@ -261,8 +312,31 @@ uint8_t bsp_usbpd_port_transmit_sop(const uint8_t *packet, uint8_t length)
         }
     }
 
-    NVIC_EnableIRQ(USBPD_IRQn);
+    bsp_usbpd_port_enter_rx_mode();
     return got_goodcrc;
+#else
+    (void)packet;
+    (void)length;
+    (void)sop;
+    return 0U;
+#endif
+}
+
+uint8_t bsp_usbpd_port_transmit_sop(const uint8_t *packet, uint8_t length)
+{
+#if defined(__riscv)
+    return bsp_usbpd_port_transmit_packet(packet, length, UPD_SOP0);
+#else
+    (void)packet;
+    (void)length;
+    return 0U;
+#endif
+}
+
+uint8_t bsp_usbpd_port_transmit_sop_prime(const uint8_t *packet, uint8_t length)
+{
+#if defined(__riscv)
+    return bsp_usbpd_port_transmit_packet(packet, length, UPD_SOP1);
 #else
     (void)packet;
     (void)length;
@@ -275,19 +349,24 @@ void bsp_usbpd_irq_handler(void)
 #if defined(__riscv)
     if ((USBPD->STATUS & IF_RX_ACT) != 0U)
     {
+        uint8_t rx_sop;
+
         USBPD->STATUS |= IF_RX_ACT;
-        if (((USBPD->STATUS & MASK_PD_STAT) == PD_RX_SOP0) && (USBPD->BMC_BYTE_CNT >= 6U))
+        rx_sop = USBPD->STATUS & MASK_PD_STAT;
+        if (((rx_sop == PD_RX_SOP0) || (rx_sop == PD_RX_SOP1_HRST)) &&
+            (USBPD->BMC_BYTE_CNT >= 6U))
         {
             if ((USBPD->BMC_BYTE_CNT != 6U) || ((g_pd_rx_buf[0] & 0x1FU) != DEF_TYPE_GOODCRC))
             {
-                g_pd_rx_length = USBPD->BMC_BYTE_CNT;
-                g_pd_message_pending = 1U;
+                g_pd_rx_candidate_length = USBPD->BMC_BYTE_CNT;
 
                 Delay_Us(30U);
                 g_pd_ack_buf[0] = 0x41U;
                 g_pd_ack_buf[1] = g_pd_rx_buf[1] & 0x0EU;
+                g_pd_ack_pending = 1U;
+                g_pd_ack_sop = (rx_sop == PD_RX_SOP1_HRST) ? UPD_SOP1 : UPD_SOP0;
                 USBPD->CONFIG |= IE_TX_END;
-                bsp_usbpd_port_send_packet(g_pd_ack_buf, 2U, UPD_SOP0);
+                bsp_usbpd_port_send_packet(g_pd_ack_buf, 2U, g_pd_ack_sop);
             }
         }
     }
@@ -297,29 +376,50 @@ void bsp_usbpd_irq_handler(void)
         bsp_usbpd_port_release_cc_line();
         USBPD->STATUS |= IF_TX_END;
 
-        bsp_usbpd_port_enter_rx_mode();
+        if (g_pd_ack_pending != 0U)
+        {
+            g_pd_ack_pending = 0U;
+            if ((g_pd_rx_candidate_length != 0U) &&
+                (g_pd_rx_candidate_length <= BSP_USBPD_PORT_MAX_PACKET_SIZE))
+            {
+                g_pd_rx_length = g_pd_rx_candidate_length;
+                g_pd_message_pending = 1U;
+            }
+            g_pd_rx_candidate_length = 0U;
+            NVIC_DisableIRQ(USBPD_IRQn);
+        }
+        else
+        {
+            bsp_usbpd_port_enter_rx_mode();
+        }
     }
 
     if ((USBPD->STATUS & IF_RX_RESET) != 0U)
     {
         USBPD->STATUS |= IF_RX_RESET;
+        bsp_usbpd_port_pause_rx_mode();
+        g_pd_cc_orientation = 0U;
         g_pd_detach_pending = 1U;
         g_pd_message_pending = 0U;
         g_pd_rx_length = 0U;
+        g_pd_rx_candidate_length = 0U;
+        g_pd_ack_pending = 0U;
+        g_pd_ack_sop = UPD_SOP0;
         bsp_usbpd_port_set_sink_mode();
         bsp_usbpd_port_refresh_orientation();
-        bsp_usbpd_port_enter_rx_mode();
     }
 
     if ((USBPD->STATUS & BUF_ERR) != 0U)
     {
         USBPD->STATUS |= BUF_ERR;
+        bsp_usbpd_port_pause_rx_mode();
         g_pd_detach_pending = 1U;
         g_pd_message_pending = 0U;
         g_pd_rx_length = 0U;
+        g_pd_rx_candidate_length = 0U;
+        g_pd_ack_pending = 0U;
         bsp_usbpd_port_set_sink_mode();
         bsp_usbpd_port_refresh_orientation();
-        bsp_usbpd_port_enter_rx_mode();
     }
 #endif
 }

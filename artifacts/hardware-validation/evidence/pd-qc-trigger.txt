@@ -1,0 +1,6 @@
+# PX1 PD/QC trigger evidence
+
+Firmware SHA256: c727a47c57545ba8a523f4bf1d2b698a3e175ced8ea09a2fe4c5c0d0a7d12e5e
+
+TODO: replace this placeholder with real PX1 hardware evidence before final validation.
+Required: PD Source_Cap/PDO voltage list, requested target voltage, VBUS/current, QC2/QC3 mode, DP/DM voltage, QC VBUS/current.

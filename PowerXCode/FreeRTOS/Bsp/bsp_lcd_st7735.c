@@ -21,10 +21,13 @@ typedef struct
 
 static bsp_lcd_window_t g_window = { 0U, 0U, LCD_WIDTH, LCD_HEIGHT };
 static uint8_t g_lcd_ready;
+static uint16_t g_lcd_rotation_degrees;
 
 #if defined(__riscv)
 #define PX1_LCD_X_OFFSET 0U
 #define PX1_LCD_Y_OFFSET 24U
+#define PX1_LCD_MADCTL_ROT0 0x78U
+#define PX1_LCD_MADCTL_ROT180 0xB8U
 #define PX1_LCD_DMA_CHANNEL DMA1_Channel3
 #define PX1_LCD_DMA_CLOCK RCC_HBPeriph_DMA1
 #define PX1_LCD_DMA_TC_FLAG DMA1_FLAG_TC3
@@ -47,7 +50,7 @@ static const uint8_t g_lcd_init_c2[] = { 0x0DU, 0x00U };
 static const uint8_t g_lcd_init_c3[] = { 0x8DU, 0x2AU };
 static const uint8_t g_lcd_init_c4[] = { 0x8DU, 0xEEU };
 static const uint8_t g_lcd_init_c5[] = { 0x06U };
-static const uint8_t g_lcd_init_36[] = { 0x78U };
+static const uint8_t g_lcd_init_36[] = { PX1_LCD_MADCTL_ROT0 };
 static const uint8_t g_lcd_init_3a[] = { 0x55U };
 static const uint8_t g_lcd_init_e0[] = {
     0x0BU, 0x17U, 0x0AU, 0x0DU, 0x1AU, 0x19U, 0x16U, 0x1DU,
@@ -151,12 +154,23 @@ static void bsp_lcd_write_u8(uint8_t value)
     }
 }
 
+static void bsp_lcd_write_bus_pulsed(uint8_t value)
+{
+#if defined(__riscv) && PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
+    GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+    bsp_lcd_write_u8(value);
+    GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+#else
+    (void)value;
+#endif
+}
+
 static void bsp_lcd_write_command(uint8_t command)
 {
 #if PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
-    GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS | PX1_LCD_PIN_DC);
-    bsp_lcd_write_u8(command);
-    GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS | PX1_LCD_PIN_DC);
+    GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
+    bsp_lcd_write_bus_pulsed(command);
+    GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
 #else
     (void)command;
 #endif
@@ -170,13 +184,11 @@ static void bsp_lcd_write_data_block(const uint8_t *data, uint8_t length)
         return;
     }
 
-    GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
     GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
     while (length-- != 0U)
     {
-        bsp_lcd_write_u8(*data++);
+        bsp_lcd_write_bus_pulsed(*data++);
     }
-    GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
 #else
     (void)data;
     (void)length;
@@ -190,36 +202,6 @@ static void bsp_lcd_write_data_u16(uint16_t value)
     bytes[0] = (uint8_t)(value >> 8);
     bytes[1] = (uint8_t)value;
     bsp_lcd_write_data_block(bytes, 2U);
-}
-
-static void bsp_lcd_push_pixels_dma(const uint16_t *pixels, uint16_t count)
-{
-    if ((pixels == 0) || (count == 0U))
-    {
-        return;
-    }
-
-    DMA_Cmd(PX1_LCD_DMA_CHANNEL, DISABLE);
-    DMA_ClearFlag(PX1_LCD_DMA_TC_FLAG);
-    PX1_LCD_DMA_CHANNEL->MADDR = (uint32_t)pixels;
-    DMA_SetCurrDataCounter(PX1_LCD_DMA_CHANNEL, count);
-
-    SPI_DataSizeConfig(PX1_LCD_SPI, SPI_DataSize_16b);
-    SPI_I2S_DMACmd(PX1_LCD_SPI, SPI_I2S_DMAReq_Tx, ENABLE);
-    DMA_Cmd(PX1_LCD_DMA_CHANNEL, ENABLE);
-
-    while (DMA_GetFlagStatus(PX1_LCD_DMA_TC_FLAG) == RESET)
-    {
-    }
-
-    while (SPI_I2S_GetFlagStatus(PX1_LCD_SPI, SPI_I2S_FLAG_BSY) != RESET)
-    {
-    }
-
-    DMA_Cmd(PX1_LCD_DMA_CHANNEL, DISABLE);
-    DMA_ClearFlag(PX1_LCD_DMA_TC_FLAG);
-    SPI_I2S_DMACmd(PX1_LCD_SPI, SPI_I2S_DMAReq_Tx, DISABLE);
-    SPI_DataSizeConfig(PX1_LCD_SPI, SPI_DataSize_8b);
 }
 
 static void bsp_lcd_address_set(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2)
@@ -258,6 +240,7 @@ void bsp_lcd_init(void)
 {
     g_window = (bsp_lcd_window_t){ 0U, 0U, LCD_WIDTH, LCD_HEIGHT };
     g_lcd_ready = 0U;
+    g_lcd_rotation_degrees = 0U;
 
 #if defined(__riscv)
     bsp_lcd_ctrl_init();
@@ -275,6 +258,42 @@ void bsp_lcd_init(void)
     g_lcd_ready = 1U;
 #endif
 #endif
+}
+
+void bsp_lcd_set_rotation(uint16_t degrees)
+{
+    uint16_t normalized;
+
+    normalized = (degrees == 180U) ? 180U : 0U;
+    g_lcd_rotation_degrees = normalized;
+
+#if defined(__riscv)
+    if (g_lcd_ready == 0U)
+    {
+        return;
+    }
+
+#if PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
+    {
+        uint8_t madctl;
+
+        madctl = (normalized == 180U) ? PX1_LCD_MADCTL_ROT180 : PX1_LCD_MADCTL_ROT0;
+        bsp_lcd_write_command(0x36U);
+        bsp_lcd_write_data_block(&madctl, 1U);
+        bsp_lcd_address_set(g_window.x,
+                            g_window.y,
+                            (uint16_t)(g_window.x + g_window.width - 1U),
+                            (uint16_t)(g_window.y + g_window.height - 1U));
+    }
+#endif
+#else
+    (void)degrees;
+#endif
+}
+
+uint16_t bsp_lcd_get_rotation_degrees(void)
+{
+    return g_lcd_rotation_degrees;
 }
 
 void bsp_lcd_set_window(uint16_t x, uint16_t y, uint16_t width, uint16_t height)
@@ -329,6 +348,19 @@ void bsp_lcd_set_window(uint16_t x, uint16_t y, uint16_t width, uint16_t height)
     (void)height;
 }
 
+void bsp_lcd_get_window(bsp_lcd_window_info_t *window)
+{
+    if (window == 0)
+    {
+        return;
+    }
+
+    window->x = g_window.x;
+    window->y = g_window.y;
+    window->width = g_window.width;
+    window->height = g_window.height;
+}
+
 void bsp_lcd_push_pixels(const uint16_t *pixels, uint16_t count)
 {
     if ((pixels == 0) || (count == 0U))
@@ -347,12 +379,12 @@ void bsp_lcd_push_pixels(const uint16_t *pixels, uint16_t count)
     GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
     while (count != 0U)
     {
-        uint16_t chunk;
+        uint16_t color;
 
-        chunk = count;
-        bsp_lcd_push_pixels_dma(pixels, chunk);
-        pixels += chunk;
-        count = (uint16_t)(count - chunk);
+        color = *pixels++;
+        bsp_lcd_write_u8((uint8_t)(color >> 8));
+        bsp_lcd_write_u8((uint8_t)color);
+        --count;
     }
     GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
 #else
@@ -363,4 +395,138 @@ void bsp_lcd_push_pixels(const uint16_t *pixels, uint16_t count)
     (void)pixels;
     (void)count;
 #endif
+}
+
+void bsp_lcd_fill_color(uint16_t color)
+{
+    uint16_t y;
+
+    (void)color;
+    if (g_lcd_ready == 0U)
+    {
+        return;
+    }
+
+    for (y = 0U; y < LCD_HEIGHT; ++y)
+    {
+#if defined(__riscv)
+#if PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
+        {
+            uint16_t x;
+
+            bsp_lcd_address_set(0U, y, LCD_WIDTH - 1U, y);
+            GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+            GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
+            for (x = 0U; x < LCD_WIDTH; ++x)
+            {
+                bsp_lcd_write_u8((uint8_t)(color >> 8));
+                bsp_lcd_write_u8((uint8_t)color);
+            }
+            GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+        }
+#endif
+#endif
+    }
+}
+
+void bsp_lcd_fill_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t color)
+{
+    uint16_t row;
+
+    (void)color;
+    if (g_lcd_ready == 0U)
+    {
+        return;
+    }
+
+    if ((x >= LCD_WIDTH) || (y >= LCD_HEIGHT) || (width == 0U) || (height == 0U))
+    {
+        return;
+    }
+
+    if ((uint32_t)x + width > LCD_WIDTH)
+    {
+        width = LCD_WIDTH - x;
+    }
+
+    if ((uint32_t)y + height > LCD_HEIGHT)
+    {
+        height = LCD_HEIGHT - y;
+    }
+
+    for (row = 0U; row < height; ++row)
+    {
+#if defined(__riscv)
+#if PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
+        {
+            uint16_t col;
+
+            bsp_lcd_address_set(x, (uint16_t)(y + row), (uint16_t)(x + width - 1U), (uint16_t)(y + row));
+            GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+            GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
+            for (col = 0U; col < width; ++col)
+            {
+                bsp_lcd_write_u8((uint8_t)(color >> 8));
+                bsp_lcd_write_u8((uint8_t)color);
+            }
+            GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+        }
+#endif
+#endif
+    }
+}
+
+void bsp_lcd_draw_test_pattern(void)
+{
+    uint16_t y;
+
+    if (g_lcd_ready == 0U)
+    {
+        return;
+    }
+
+    for (y = 0U; y < LCD_HEIGHT; ++y)
+    {
+        uint16_t color;
+
+        if (y < 16U)
+        {
+            color = 0xF800U;
+        }
+        else if (y < 32U)
+        {
+            color = 0x07E0U;
+        }
+        else if (y < 48U)
+        {
+            color = 0x001FU;
+        }
+        else if (y < 64U)
+        {
+            color = 0xFFFFU;
+        }
+        else
+        {
+            color = 0x0000U;
+        }
+        (void)color;
+
+#if defined(__riscv)
+#if PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
+        {
+            uint16_t x;
+
+            bsp_lcd_address_set(0U, y, LCD_WIDTH - 1U, y);
+            GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+            GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
+            for (x = 0U; x < LCD_WIDTH; ++x)
+            {
+                bsp_lcd_write_u8((uint8_t)(color >> 8));
+                bsp_lcd_write_u8((uint8_t)color);
+            }
+            GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
+        }
+#endif
+#endif
+    }
 }

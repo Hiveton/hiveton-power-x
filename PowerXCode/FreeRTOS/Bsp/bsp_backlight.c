@@ -93,3 +93,8 @@ void bsp_backlight_set(uint8_t percent)
     bsp_backlight_apply_percent(percent);
 #endif
 }
+
+uint8_t bsp_backlight_get_percent(void)
+{
+    return g_backlight_percent;
+}

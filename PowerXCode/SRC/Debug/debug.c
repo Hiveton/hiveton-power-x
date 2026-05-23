@@ -12,8 +12,16 @@
  *******************************************************************************/
 #include "debug.h"
 
-static uint16_t  p_us = 0;
-static uint16_t p_ms = 0;
+static uint32_t p_us = 0;
+static uint32_t p_ms = 0;
+
+static void Delay_Loop(uint32_t cycles)
+{
+    while (cycles-- != 0U)
+    {
+        __asm volatile("nop");
+    }
+}
 /*********************************************************************
  * @fn      Delay_Init
  *
@@ -23,8 +31,12 @@ static uint16_t p_ms = 0;
  */
 void Delay_Init(void)
 {
-    p_us = SystemCoreClock / 8000;
-    p_ms = (uint16_t)p_us * 1;
+    p_us = SystemCoreClock / 1000000U;
+    if (p_us == 0U)
+    {
+        p_us = 1U;
+    }
+    p_ms = p_us * 1000U;
 }
 
 /*********************************************************************
@@ -38,17 +50,7 @@ void Delay_Init(void)
  */
 void Delay_Us(uint32_t n)
 {
-    uint32_t i;
-
-    SysTick->SR &= ~(1 << 0);
-    i = (uint32_t)(n * p_us)/1000;
-
-    SysTick->CMP = i;
-    SysTick->CTLR |= (1 << 4);
-    SysTick->CTLR |= (1 << 5) | (1 << 0);
-
-    while((SysTick->SR & (1 << 0)) != (1 << 0));
-    SysTick->CTLR &= ~(1 << 0);
+    Delay_Loop(p_us * n);
 }
 
 /*********************************************************************
@@ -62,17 +64,10 @@ void Delay_Us(uint32_t n)
  */
 void Delay_Ms(uint32_t n)
 {
-    uint32_t i;
-
-    SysTick->SR &= ~(1 << 0);
-    i = (uint32_t)n * p_ms;
-
-    SysTick->CMP = i;
-    SysTick->CTLR |= (1 << 4);
-    SysTick->CTLR |= (1 << 5) | (1 << 0);
-
-    while((SysTick->SR & (1 << 0)) != (1 << 0));
-    SysTick->CTLR &= ~(1 << 0);
+    while (n-- != 0U)
+    {
+        Delay_Loop(p_ms);
+    }
 }
 
 /*********************************************************************

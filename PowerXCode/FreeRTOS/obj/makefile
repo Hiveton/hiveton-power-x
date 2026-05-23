@@ -47,6 +47,9 @@ endif
 SECONDARY_FLASH += \
 FreeRTOS.hex \
 
+SECONDARY_BIN += \
+FreeRTOS.bin \
+
 SECONDARY_LIST += \
 FreeRTOS.lst \
 
@@ -65,6 +68,8 @@ FreeRTOS.elf: $(OBJS) $(USER_OBJS_ESCAPE)
 	@	riscv-none-embed-gcc -march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -msave-restore -fmax-errors=20 -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Wunused -g -T "/Users/hiveton/HivetonCode/HivetonPowerX/PowerXCode/FreeRTOS/Ld/Link.ld" -nostartfiles -Xlinker --gc-sections -Wl,-Map,"FreeRTOS.map" --specs=nano.specs --specs=nosys.specs -o "FreeRTOS.elf" $(OBJS) $(LIBS)
 FreeRTOS.hex: FreeRTOS.elf
 	@	riscv-none-embed-objcopy -O ihex "FreeRTOS.elf" "FreeRTOS.hex"
+FreeRTOS.bin: FreeRTOS.elf
+	@	riscv-none-embed-objcopy -O binary "FreeRTOS.elf" "FreeRTOS.bin"
 FreeRTOS.lst: FreeRTOS.elf
 	@	riscv-none-embed-objdump --all-headers --demangle --disassemble -M xw "FreeRTOS.elf" > "FreeRTOS.lst"
 FreeRTOS.siz: FreeRTOS.elf
@@ -72,10 +77,10 @@ FreeRTOS.siz: FreeRTOS.elf
 
 # Other Targets
 clean:
-	-$(RM) $(DIR_OBJS) $(SECONDARY_FLASH)$(SECONDARY_LIST)$(SECONDARY_SIZE) FreeRTOS.elf
+	-$(RM) $(DIR_OBJS) $(SECONDARY_FLASH)$(SECONDARY_BIN)$(SECONDARY_LIST)$(SECONDARY_SIZE) FreeRTOS.elf
 	-$(RM) $(DIR_EXPANDS) $(CALLGRAPH_DOT)
 	-$(RM) $(DIR_DEPS)
-secondary-outputs: $(SECONDARY_FLASH) $(SECONDARY_LIST) $(SECONDARY_SIZE)
+secondary-outputs: $(SECONDARY_FLASH) $(SECONDARY_BIN) $(SECONDARY_LIST) $(SECONDARY_SIZE)
 
 .PHONY: all clean dependents
 
