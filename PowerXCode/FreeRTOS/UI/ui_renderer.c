@@ -1411,6 +1411,16 @@ static void ui_format_current_5digits(char *out, uint8_t limit, int32_t deci_ma_
     out[pos] = '\0';
 }
 
+static void ui_format_power_5digits(char *out, uint8_t limit, int32_t deci_mw_value)
+{
+    if (out == NULL)
+    {
+        return;
+    }
+
+    ui_value_format_power_5digits_deci_mw(out, limit, deci_mw_value);
+}
+
 static void ui_format_current_4digits(char *out, uint8_t limit, int32_t deci_ma_value)
 {
     uint8_t pos;
@@ -2194,6 +2204,32 @@ static int32_t ui_measure_power_mw(const measure_snapshot_t *measure)
     return ((measure != NULL) && (measure->power_valid != 0U)) ? measure->power_mw : 0;
 }
 
+static int32_t ui_measure_power_deci_mw(const measure_snapshot_t *measure)
+{
+    int32_t power_mw;
+
+    if ((measure == NULL) || (measure->power_valid == 0U))
+    {
+        return 0;
+    }
+
+    if (measure->power_deci_mw != 0)
+    {
+        return measure->power_deci_mw;
+    }
+
+    power_mw = measure->power_mw;
+    if (power_mw > (INT32_MAX / 10))
+    {
+        return INT32_MAX;
+    }
+    if (power_mw < (INT32_MIN / 10))
+    {
+        return INT32_MIN;
+    }
+    return power_mw * 10;
+}
+
 static void ui_begin_row(uint16_t row)
 {
     (void)row;
@@ -2244,17 +2280,15 @@ void ui_renderer_draw_main_page(const ui_model_state_t *state,
     char power[8];
     int32_t mv;
     int32_t deci_ma;
-    int32_t mw;
     uint16_t row;
 
     (void)state;
     (void)protocol;
     mv = ((measure != NULL) && (measure->voltage_valid != 0U)) ? measure->voltage_avg_mv : 0;
     deci_ma = ui_measure_current_deci_ma(measure);
-    mw = ((measure != NULL) && (measure->power_valid != 0U)) ? measure->power_mw : 0;
     ui_format_meter_5digits(voltage, sizeof(voltage), mv);
     ui_format_current_5digits(current, sizeof(current), deci_ma);
-    ui_format_meter_5digits(power, sizeof(power), mw);
+    ui_format_power_5digits(power, sizeof(power), ui_measure_power_deci_mw(measure));
 
     for (row = 0U; row < LCD_HEIGHT; ++row)
     {
@@ -2377,7 +2411,7 @@ void ui_renderer_draw_dpdm_page(const ui_model_state_t *state,
 
     ui_format_meter_5digits(voltage, sizeof(voltage), ui_measure_voltage_mv(measure));
     ui_format_current_5digits(current, sizeof(current), ui_measure_current_deci_ma(measure));
-    ui_format_meter_5digits(power, sizeof(power), ui_measure_power_mw(measure));
+    ui_format_power_5digits(power, sizeof(power), ui_measure_power_deci_mw(measure));
     ui_format_dpdm_voltage(dp, sizeof(dp), (protocol != NULL) ? protocol->dp_mv : 0);
     ui_format_dpdm_voltage(dm, sizeof(dm), (protocol != NULL) ? protocol->dm_mv : 0);
     detected = ui_infer_dpdm_protocol(protocol);
@@ -2462,7 +2496,7 @@ void ui_renderer_draw_power_stats_page(const ui_model_state_t *state,
     average = ui_model_power_stats_average(state);
     ui_format_meter_5digits(voltage, sizeof(voltage), ui_measure_voltage_mv(measure));
     ui_format_current_5digits(current, sizeof(current), ui_measure_current_deci_ma(measure));
-    ui_format_meter_5digits(power, sizeof(power), ui_measure_power_mw(measure));
+    ui_format_power_5digits(power, sizeof(power), ui_measure_power_deci_mw(measure));
 
     ui_format_meter_4digits(stat_v,
                             sizeof(stat_v),
@@ -2508,7 +2542,7 @@ void ui_renderer_draw_capacity_page(const ui_model_state_t *state,
 
     ui_format_meter_5digits(voltage, sizeof(voltage), ui_measure_voltage_mv(measure));
     ui_format_current_5digits(current, sizeof(current), ui_measure_current_deci_ma(measure));
-    ui_format_meter_5digits(power, sizeof(power), ui_measure_power_mw(measure));
+    ui_format_power_5digits(power, sizeof(power), ui_measure_power_deci_mw(measure));
     ui_format_time(time_text, sizeof(time_text), (measure != NULL) ? measure->stat_elapsed_s : 0U);
     show_wh = ui_model_capacity_show_wh(state);
     if (show_wh != 0U)

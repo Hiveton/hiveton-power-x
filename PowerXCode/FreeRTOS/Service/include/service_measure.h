@@ -12,6 +12,7 @@ typedef struct
     int32_t current_avg_ma;
     int32_t current_avg_deci_ma;
     int32_t power_mw;
+    int32_t power_deci_mw;
     int32_t voltage_min_mv;
     int32_t voltage_max_mv;
     int32_t current_min_ma;

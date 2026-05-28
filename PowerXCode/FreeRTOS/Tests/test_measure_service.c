@@ -9,6 +9,7 @@ static void assert_snapshot_zeroed(const measure_snapshot_t *snapshot)
     assert(snapshot->voltage_avg_mv == 0);
     assert(snapshot->current_avg_ma == 0);
     assert(snapshot->power_mw == 0);
+    assert(snapshot->power_deci_mw == 0);
     assert(snapshot->voltage_min_mv == 0);
     assert(snapshot->voltage_max_mv == 0);
     assert(snapshot->current_min_ma == 0);
@@ -33,6 +34,7 @@ static void test_nominal_case(void)
     assert(snapshot.current_avg_ma == 1525);
     assert(snapshot.current_avg_deci_ma == 15250);
     assert(snapshot.power_mw == 18338);
+    assert(snapshot.power_deci_mw == 183381);
     assert(snapshot.voltage_min_mv == 11950);
     assert(snapshot.voltage_max_mv == 12100);
     assert(snapshot.current_min_ma == 1450);
@@ -62,6 +64,7 @@ static void test_precise_current_keeps_low_decimal(void)
     assert(snapshot.current_min_deci_ma == 10005);
     assert(snapshot.current_max_deci_ma == 10015);
     assert(snapshot.power_mw == 5005);
+    assert(snapshot.power_deci_mw == 50050);
     assert(snapshot.stat_current_avg_ma == 1000);
     assert(snapshot.stat_current_avg_deci_ma == 10010);
     assert(snapshot.stat_current_max_ma == 1000);
@@ -77,6 +80,7 @@ static void test_invalid_input_and_zero_sample_count(void)
         .voltage_avg_mv = 7,
         .current_avg_ma = 8,
         .power_mw = 9,
+        .power_deci_mw = 90,
         .voltage_min_mv = 10,
         .voltage_max_mv = 11,
         .current_min_ma = 12,
@@ -92,6 +96,7 @@ static void test_invalid_input_and_zero_sample_count(void)
     snapshot.voltage_avg_mv = 1;
     snapshot.current_avg_ma = 2;
     snapshot.power_mw = 3;
+    snapshot.power_deci_mw = 30;
     snapshot.voltage_min_mv = 4;
     snapshot.voltage_max_mv = 5;
     snapshot.current_min_ma = 6;
@@ -116,6 +121,7 @@ static void test_ripple_remains_sane(void)
     assert(snapshot.ripple_pp_est_mv == 5000000U);
     assert(snapshot.ripple_level == 2000U);
     assert(snapshot.power_mw == 250000U);
+    assert(snapshot.power_deci_mw == 2500000);
     assert(snapshot.voltage_min_mv == 0);
     assert(snapshot.voltage_max_mv == 5000000);
     assert(snapshot.current_min_ma == 100);
@@ -158,6 +164,7 @@ static void test_negative_current_is_preserved(void)
     assert(snapshot.current_min_ma == -1200);
     assert(snapshot.current_max_ma == -800);
     assert(snapshot.power_mw == -5000);
+    assert(snapshot.power_deci_mw == -50000);
     assert(snapshot.stat_current_avg_ma == 1000);
     assert(snapshot.stat_power_avg_mw == 5000);
     assert(snapshot.stat_current_max_ma == 1000);

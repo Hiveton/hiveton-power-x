@@ -53,6 +53,7 @@ static uint16_t app_ui_refresh_period_ms(ui_page_t page)
         case UI_PAGE_MAIN:
         case UI_PAGE_DPDM:
         case UI_PAGE_POWER_STATS:
+        case UI_PAGE_CAPACITY:
             return UI_TASK_LIVE_REFRESH_MS;
         case UI_PAGE_SCOPE:
         case UI_PAGE_RIPPLE:
@@ -61,7 +62,6 @@ static uint16_t app_ui_refresh_period_ms(ui_page_t page)
         case UI_PAGE_PROTOCOL:
         case UI_PAGE_PDO:
         case UI_PAGE_EMARK:
-        case UI_PAGE_CAPACITY:
             return UI_TASK_PROTOCOL_REFRESH_MS;
         case UI_PAGE_MENU:
         case UI_PAGE_SETTINGS:
@@ -76,7 +76,6 @@ void app_tasks_set_trigger_boot(uint8_t enabled)
     g_trigger_boot_requested = (enabled != 0U) ? 1U : 0U;
 }
 
-#if PX1_KEY_DEBUG_SCREEN || PX1_MINIMAL_HEARTBEAT_DIAG
 static uint8_t app_keys_event_mask(const bsp_keys_event_t *keys)
 {
     uint8_t mask;
@@ -102,7 +101,6 @@ static uint8_t app_keys_event_mask(const bsp_keys_event_t *keys)
 
     return mask;
 }
-#endif
 
 #if PX1_MINIMAL_HEARTBEAT_DIAG
 static void app_draw_diag_bit_row(uint16_t y, uint8_t mask, uint16_t active_color)
@@ -340,6 +338,7 @@ static void measure_task(void *pvParameters)
                 snapshot.stat_current_avg_deci_ma = 0;
                 snapshot.stat_current_max_deci_ma = 0;
                 snapshot.power_mw = 0;
+                snapshot.power_deci_mw = 0;
                 snapshot.power_valid = 0U;
             }
 
@@ -352,6 +351,7 @@ static void measure_task(void *pvParameters)
                 snapshot.ripple_level = 0U;
                 snapshot.ripple_sample_count = 0U;
                 snapshot.power_mw = 0;
+                snapshot.power_deci_mw = 0;
                 snapshot.power_valid = 0U;
             }
 
@@ -498,6 +498,7 @@ static void ui_task(void *pvParameters)
     if (g_trigger_boot_requested != 0U)
     {
         ui_model_open_trigger(&ui_state);
+        bsp_backlight_set(ui_model_brightness_percent(&ui_state));
         service_pd_set_sink_hold(1U);
         service_pd_request_source_capabilities();
     }
@@ -525,6 +526,10 @@ static void ui_task(void *pvParameters)
 #endif
         redraw = 0U;
         bsp_keys_poll(&keys);
+        if (app_keys_event_mask(&keys) != 0U)
+        {
+            bsp_backlight_set(ui_model_brightness_percent(&ui_state));
+        }
 #if PX1_KEY_DEBUG_SCREEN || PX1_MINIMAL_HEARTBEAT_DIAG
         event_mask = app_keys_event_mask(&keys);
         if (event_mask != 0U)

@@ -86,4 +86,48 @@ static inline void ui_value_format_meter_5half(char *out, uint8_t limit, int32_t
     out[pos] = '\0';
 }
 
+static inline void ui_value_format_power_5digits_deci_mw(char *out,
+                                                         uint8_t limit,
+                                                         int32_t deci_mw_value)
+{
+    uint8_t pos;
+    uint8_t decimals;
+    uint32_t integer;
+    uint32_t frac;
+    uint32_t value;
+    int64_t signed_value;
+
+    if (limit == 0U)
+    {
+        return;
+    }
+
+    signed_value = (int64_t)deci_mw_value;
+    if (signed_value < 0)
+    {
+        signed_value = -signed_value;
+    }
+    value = (uint32_t)signed_value;
+
+    integer = value / 10000U;
+    decimals = (integer < 10U) ? 4U : 3U;
+    if (decimals == 4U)
+    {
+        frac = value % 10000U;
+    }
+    else
+    {
+        frac = (value % 10000U) / 10U;
+    }
+
+    pos = 0U;
+    ui_value_format_append_uint(out, &pos, (uint8_t)(limit - 1U), integer, 1U);
+    if (pos < (uint8_t)(limit - 1U))
+    {
+        out[pos++] = '.';
+    }
+    ui_value_format_append_uint(out, &pos, (uint8_t)(limit - 1U), frac, decimals);
+    out[pos] = '\0';
+}
+
 #endif /* UI_VALUE_FORMAT_H */

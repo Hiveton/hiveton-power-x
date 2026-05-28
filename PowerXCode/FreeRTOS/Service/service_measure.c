@@ -268,6 +268,7 @@ void measure_service_process_samples_precise_timed(const int32_t *voltage_mv,
     int32_t current_avg_ma;
     int32_t current_avg_deci_ma;
     int32_t power_mw;
+    int32_t power_deci_mw;
     uint32_t ripple_span;
     uint32_t ripple_level;
     int32_t sample_divisor;
@@ -336,6 +337,7 @@ void measure_service_process_samples_precise_timed(const int32_t *voltage_mv,
     current_avg_ma = current_sum / sample_divisor;
     current_avg_deci_ma = current_deci_sum / sample_divisor;
     power_mw = measure_mul_div_i32(voltage_avg_mv, current_avg_deci_ma, 10000U);
+    power_deci_mw = measure_mul_div_i32(voltage_avg_mv, current_avg_deci_ma, 1000U);
 
     ripple_span = (uint32_t)(voltage_max - voltage_min);
     {
@@ -358,6 +360,7 @@ void measure_service_process_samples_precise_timed(const int32_t *voltage_mv,
     snapshot->current_avg_ma = current_avg_ma;
     snapshot->current_avg_deci_ma = current_avg_deci_ma;
     snapshot->power_mw = power_mw;
+    snapshot->power_deci_mw = power_deci_mw;
     snapshot->voltage_min_mv = voltage_min;
     snapshot->voltage_max_mv = voltage_max;
     snapshot->current_min_ma = current_min;
