@@ -11,8 +11,8 @@ fail() {
 
 [[ -s "$CHECKER" ]] || fail "missing checker: $CHECKER"
 
-for page in main protocol trigger cc cable settings scope pdo qc; do
-  rg -q "require_delta_under[[:space:]]+${page}[[:space:]]" "$CHECKER" \
+for page in main dpdm power capacity protocol pdo emark scope ripple settings menu; do
+  rg -q "for page in main dpdm power capacity protocol pdo emark scope ripple settings menu" "$CHECKER" \
     || fail "checker does not compare page against design reference: $page"
 done
 

@@ -15,7 +15,7 @@ int main(void)
 
     bsp_board_init();
 
-    assert(bsp_backlight_get_percent() == 100U);
+    assert(bsp_backlight_get_percent() == 0U);
     assert(bsp_lcd_get_rotation_degrees() == 0U);
 
     bsp_lcd_get_window(&window);

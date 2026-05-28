@@ -12,6 +12,7 @@
 #include "ch32l103_it.h"
 #include "bsp_adc_dma.h"
 #include "bsp_keys.h"
+#include "bsp_lcd_st7735.h"
 #include "bsp_usbpd_port.h"
 
 void NMI_Handler(void) __attribute__((interrupt()));
@@ -45,7 +46,8 @@ void NMI_Handler(void)
  */
 void HardFault_Handler(void)
 {
-    NVIC_SystemReset();
+    __disable_irq();
+    bsp_lcd_fill_color(0xF800U);
     while (1)
     {
     }

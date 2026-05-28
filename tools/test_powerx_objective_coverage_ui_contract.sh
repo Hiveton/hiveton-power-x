@@ -13,13 +13,15 @@ fail() {
 
 required_renderer_symbols=(
   "ui_renderer_draw_main_page"
+  "ui_renderer_draw_dpdm_page"
+  "ui_renderer_draw_power_stats_page"
+  "ui_renderer_draw_capacity_page"
   "ui_renderer_draw_scope_page"
+  "ui_renderer_draw_ripple_page"
   "ui_renderer_draw_protocol_page"
-  "ui_renderer_draw_trigger_page"
   "ui_renderer_draw_pdo_page"
-  "ui_renderer_draw_qc_page"
-  "ui_renderer_draw_cc_page"
-  "ui_renderer_draw_cable_page"
+  "ui_renderer_draw_emark_page"
+  "ui_renderer_draw_menu_page"
   "ui_renderer_draw_settings_page"
 )
 
@@ -30,7 +32,6 @@ done
 
 required_behavior_tests=(
   "test_main_page_routes_to_main_renderer"
-  "test_trigger_page_routes_to_trigger_renderer"
   "test_extra_pages_route_to_dedicated_renderers"
   "test_invalid_page_falls_back_to_product_home"
 )

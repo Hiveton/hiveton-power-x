@@ -51,38 +51,55 @@ void ui_pages_draw(const ui_model_state_t *state,
     }
 
     display_protocol = ui_pages_display_protocol(measure, protocol);
+    ui_renderer_begin_frame_stream();
 
     switch (state->page)
     {
         case UI_PAGE_MAIN:
             ui_renderer_draw_main_page(state, measure, &display_protocol);
             break;
+        case UI_PAGE_DPDM:
+            ui_renderer_draw_dpdm_page(state, measure, &display_protocol);
+            break;
+        case UI_PAGE_POWER_STATS:
+            ui_renderer_draw_power_stats_page(state, measure);
+            break;
+        case UI_PAGE_CAPACITY:
+            ui_renderer_draw_capacity_page(state, measure);
+            break;
         case UI_PAGE_SCOPE:
             ui_renderer_draw_scope_page(measure);
             break;
-        case UI_PAGE_PROTOCOL:
-            ui_renderer_draw_protocol_page(measure, &display_protocol);
+        case UI_PAGE_RIPPLE:
+            ui_renderer_draw_ripple_page(state, measure);
             break;
-        case UI_PAGE_TRIGGER:
-            ui_renderer_draw_trigger_page(state, &display_protocol);
+        case UI_PAGE_TRIGGER_SELECT:
+            ui_renderer_draw_trigger_select_page(state, &display_protocol);
+            break;
+        case UI_PAGE_TRIGGER_ADJUST:
+            ui_renderer_draw_trigger_adjust_page(state, &display_protocol);
+            break;
+        case UI_PAGE_PROTOCOL:
+            ui_renderer_draw_protocol_page(state, measure, &display_protocol);
+            break;
+        case UI_PAGE_PROTOCOL_WARNING:
+            ui_renderer_draw_protocol_warning_page(state);
             break;
         case UI_PAGE_PDO:
             ui_renderer_draw_pdo_page(state, &display_protocol);
             break;
-        case UI_PAGE_QC:
-            ui_renderer_draw_qc_page(state, &display_protocol);
+        case UI_PAGE_EMARK:
+            ui_renderer_draw_emark_page(measure, &display_protocol);
             break;
-        case UI_PAGE_CC:
-            ui_renderer_draw_cc_page(measure, &display_protocol);
-            break;
-        case UI_PAGE_CABLE:
-            ui_renderer_draw_cable_page(measure, &display_protocol);
+        case UI_PAGE_MENU:
+            ui_renderer_draw_menu_page(state);
             break;
         case UI_PAGE_SETTINGS:
-            ui_renderer_draw_settings_page(state);
+            ui_renderer_draw_settings_page(state, measure);
             break;
         default:
             ui_renderer_draw_main_page(state, measure, &display_protocol);
             break;
     }
+    ui_renderer_end_frame_stream();
 }

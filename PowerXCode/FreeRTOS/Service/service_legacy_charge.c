@@ -2,6 +2,10 @@
 
 #include "bsp_cc_ext_rd.h"
 #include "bsp_dpdm.h"
+#include "service_charge_protocols.h"
+#if defined(__riscv)
+#include "bsp_usbpd_port.h"
+#endif
 
 #define LEGACY_CHARGE_QC2_DEFAULT_MV 5000
 #define LEGACY_CHARGE_QC2_MIN_MV 5000
@@ -29,6 +33,15 @@ static legacy_protocol_t g_requested_protocol = LEGACY_PROTOCOL_NONE;
 static legacy_charge_request_t g_request = { LEGACY_PROTOCOL_NONE, 0, 0, LEGACY_CHARGE_STATUS_IDLE, 0, 0 };
 static legacy_charge_runtime_t g_runtime;
 static uint8_t g_passive_dpdm_present;
+
+static uint8_t service_legacy_charge_typec_cc_attached(void)
+{
+#if defined(__riscv)
+    return (bsp_usbpd_port_current_cc() != 0U) ? 1U : 0U;
+#else
+    return 0U;
+#endif
+}
 
 static bsp_dpdm_mode_t service_legacy_charge_mode_for_protocol(legacy_protocol_t protocol)
 {
@@ -99,22 +112,7 @@ static protocol_request_state_t service_legacy_charge_request_state(legacy_charg
 
 static int32_t service_legacy_charge_quantize_qc2_voltage(int32_t target_mv)
 {
-    target_mv = service_legacy_charge_clamp_qc2_voltage(target_mv);
-
-    if (target_mv >= 19000)
-    {
-        return LEGACY_CHARGE_QC2_20V_MV;
-    }
-    if (target_mv >= 11500)
-    {
-        return LEGACY_CHARGE_QC2_12V_MV;
-    }
-    if (target_mv >= 8500)
-    {
-        return LEGACY_CHARGE_QC2_9V_MV;
-    }
-
-    return LEGACY_CHARGE_QC2_DEFAULT_MV;
+    return charge_protocol_qc2_quantize_voltage_mv(service_legacy_charge_clamp_qc2_voltage(target_mv));
 }
 
 static int32_t service_legacy_charge_clamp_qc3_voltage(int32_t target_mv)
@@ -139,30 +137,10 @@ static int32_t service_legacy_charge_clamp_qc3_voltage(int32_t target_mv)
 
 static int8_t service_legacy_charge_qc3_offset_for_voltage(int32_t target_mv)
 {
-    int32_t clamped_mv;
-    int32_t offset;
-
-    clamped_mv = service_legacy_charge_clamp_qc3_voltage(target_mv);
-    offset = (clamped_mv - LEGACY_CHARGE_QC2_DEFAULT_MV);
-    if (offset >= 0)
-    {
-        offset = (offset + 100) / 200;
-    }
-    else
-    {
-        offset = (offset - 100) / 200;
-    }
-
-    if (offset < LEGACY_CHARGE_QC3_MIN_OFFSET)
-    {
-        offset = LEGACY_CHARGE_QC3_MIN_OFFSET;
-    }
-    if (offset > LEGACY_CHARGE_QC3_MAX_OFFSET)
-    {
-        offset = LEGACY_CHARGE_QC3_MAX_OFFSET;
-    }
-
-    return (int8_t)offset;
+    return charge_protocol_qc3_offset_for_voltage_mv(service_legacy_charge_clamp_qc3_voltage(target_mv),
+                                                     LEGACY_CHARGE_QC2_DEFAULT_MV,
+                                                     LEGACY_CHARGE_QC3_MIN_OFFSET,
+                                                     LEGACY_CHARGE_QC3_MAX_OFFSET);
 }
 
 static void service_legacy_charge_apply_qc3_target(void)
@@ -243,9 +221,26 @@ static void service_legacy_charge_clear_request_state(void)
 
 static void service_legacy_charge_apply_request(void)
 {
+    if (service_legacy_charge_typec_cc_attached() != 0U)
+    {
+        bsp_dpdm_set_mode(BSP_DPDM_MODE_HIZ);
+        return;
+    }
+
     if (g_request.protocol == LEGACY_PROTOCOL_QC2)
     {
-        bsp_dpdm_apply_qc2_voltage_mv(g_request.target_mv);
+        bsp_dpdm_level_t dp_level;
+        bsp_dpdm_level_t dm_level;
+        int32_t actual_mv;
+
+        if (charge_protocol_qc2_levels_for_voltage_mv(g_request.target_mv,
+                                                      &dp_level,
+                                                      &dm_level,
+                                                      &actual_mv) != 0U)
+        {
+            g_request.target_mv = actual_mv;
+            bsp_dpdm_set_levels(dp_level, dm_level);
+        }
         return;
     }
 
@@ -416,8 +411,8 @@ uint8_t service_legacy_charge_poll(int32_t measured_vbus_mv,
     }
     else
     {
-        g_request.dp_mv = (sample.dp_high != 0U) ? LEGACY_CHARGE_DPDM_PRESENT_MV : 0;
-        g_request.dm_mv = (sample.dm_high != 0U) ? LEGACY_CHARGE_DPDM_PRESENT_MV : 0;
+        g_request.dp_mv = 0;
+        g_request.dm_mv = 0;
     }
 
     if (g_requested_protocol != LEGACY_PROTOCOL_NONE)
@@ -471,8 +466,7 @@ uint8_t service_legacy_charge_poll(int32_t measured_vbus_mv,
         }
     }
     else if (((sample.voltage_valid != 0U) &&
-              ((sample.dp_mv >= LEGACY_CHARGE_DPDM_PRESENT_MV) || (sample.dm_mv >= LEGACY_CHARGE_DPDM_PRESENT_MV))) ||
-             ((sample.dp_high != 0U) || (sample.dm_high != 0U)))
+              ((sample.dp_mv >= LEGACY_CHARGE_DPDM_PRESENT_MV) || (sample.dm_mv >= LEGACY_CHARGE_DPDM_PRESENT_MV))))
     {
         g_passive_dpdm_present = 1U;
         g_detected_protocol = LEGACY_PROTOCOL_NONE;

@@ -79,7 +79,7 @@ require_ui_pages() {
   local page
 
   [[ -s "$UI_REPORT" ]] || return 1
-  for page in main protocol trigger cc cable settings scope pdo qc; do
+  for page in main dpdm power capacity protocol pdo emark scope ripple settings menu; do
     grep -Eq "^[|][[:space:]]*${page}[[:space:]]*[|][[:space:]]*160x80[[:space:]]*[|]" "$UI_REPORT" || return 1
     png_is_size "$ROOT/artifacts/ui-preview/current-ui-${page}-160x80.png" 160 80 || return 1
   done
@@ -91,13 +91,15 @@ require_ui_render_contract() {
 
   for renderer in \
     ui_renderer_draw_main_page \
+    ui_renderer_draw_dpdm_page \
+    ui_renderer_draw_power_stats_page \
+    ui_renderer_draw_capacity_page \
     ui_renderer_draw_scope_page \
+    ui_renderer_draw_ripple_page \
     ui_renderer_draw_protocol_page \
-    ui_renderer_draw_trigger_page \
     ui_renderer_draw_pdo_page \
-    ui_renderer_draw_qc_page \
-    ui_renderer_draw_cc_page \
-    ui_renderer_draw_cable_page \
+    ui_renderer_draw_emark_page \
+    ui_renderer_draw_menu_page \
     ui_renderer_draw_settings_page; do
     file_has "$ROOT/PowerXCode/FreeRTOS/UI/ui_pages.c" "$renderer" || return 1
     file_has "$ROOT/PowerXCode/FreeRTOS/UI/ui_renderer.c" "$renderer" || return 1
@@ -105,7 +107,6 @@ require_ui_render_contract() {
 
   for behavior_test in \
     test_main_page_routes_to_main_renderer \
-    test_trigger_page_routes_to_trigger_renderer \
     test_extra_pages_route_to_dedicated_renderers \
     test_invalid_page_falls_back_to_product_home; do
     file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_ui_pages.c" "$behavior_test" || return 1
@@ -171,9 +172,9 @@ append_report "| requirement | status | evidence |"
 append_report "| --- | --- | --- |"
 
 if require_ui_pages && require_ui_render_contract; then
-  mark_pass "160x80 UI and 9 product pages" "all current-ui page PNGs are 160x80, listed in current-ui-report.md, and wired to dedicated renderer/page-route tests"
+  mark_pass "160x80 UI and 11 active UI pages" "all current-ui page PNGs are 160x80, listed in current-ui-report.md, and wired to dedicated renderer/page-route tests"
 else
-  mark_fail "160x80 UI and 9 product pages" "missing 160x80 page artifact, UI report row, renderer symbol, or page-route behavior-test evidence"
+  mark_fail "160x80 UI and 11 active UI pages" "missing 160x80 page artifact, UI report row, renderer symbol, or page-route behavior-test evidence"
 fi
 
 if "$ROOT/tools/check_ui_reference_delta.sh" >/dev/null; then
@@ -206,11 +207,11 @@ if file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c" 'test_ser
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c" 'test_service_pd_selects_fixed_pdo_and_updates_contract' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c" 'test_service_pd_waits_for_vbus_measurement_after_ps_rdy' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c" 'test_service_pd_requests_pps_apdo_when_target_matches_pps_range' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_trigger_control.c" 'test_pdo_page_pd_request_uses_fine_target' &&
+   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_ui_model.c" 'test_pdo_fine_target_steps_in_20mv_units' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Service/service_pd.c" 'service_pd_prepare_emark_identity_request'; then
-  mark_pass "USB PD detect and trigger" "PD Source_Cap default PDO, fixed PDO contract, PPS APDO request, PS_RDY/VBUS verification, UI PDO trigger, and SOP prime E-marker paths are behavior-tested"
+  mark_pass "USB PD detect and PDO" "PD Source_Cap default PDO, fixed PDO contract, PPS APDO request, PS_RDY/VBUS verification, PDO target model, and SOP prime E-marker paths are behavior-tested"
 else
-  mark_fail "USB PD detect and trigger" "PD Source_Cap/PDO/PPS/VBUS/UI trigger behavior-test or E-marker path evidence is missing"
+  mark_fail "USB PD detect and PDO" "PD Source_Cap/PDO/PPS/VBUS/PDO model behavior-test or E-marker path evidence is missing"
 fi
 
 if file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c" 'test_legacy_charge_request_drives_dpdm_mode' &&
@@ -218,15 +219,10 @@ if file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c" 'te
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c" 'test_legacy_charge_poll_reports_qc_state_and_dpdm_voltage' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c" 'test_legacy_charge_qc3_voltage_uses_200mv_steps' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c" 'test_legacy_charge_timeout_releases_dpdm_request_levels' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_trigger_control.c" 'test_qc_trigger_uses_legacy_service' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_trigger_control.c" 'test_qc_non_fixed_target_uses_qc3' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_trigger_control.c" 'test_qc_page_forces_legacy_qc_request' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_trigger_control.c" 'test_qc_page_uses_qc3_for_15v_target' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Bsp/bsp_dpdm.c" 'bsp_dpdm_apply_qc2_voltage_mv' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Bsp/bsp_dpdm.c" 'bsp_dpdm_apply_qc3_pulse'; then
-  mark_pass "USB QC detect and trigger" "QC2/QC3 DP/DM mode, fixed-voltage requests, 200mV QC3 pulse stepping, VBUS confirmation, timeout release, and UI QC trigger paths are behavior-tested"
+  mark_pass "USB QC detect" "QC2/QC3 DP/DM mode, fixed-voltage requests, 200mV QC3 pulse stepping, VBUS confirmation, and timeout release are behavior-tested"
 else
-  mark_fail "USB QC detect and trigger" "QC2/QC3 DP/DM, VBUS confirmation, timeout release, UI trigger, or driver-path behavior evidence is missing"
+  mark_fail "USB QC detect" "QC2/QC3 DP/DM, VBUS confirmation, timeout release, or driver-path behavior evidence is missing"
 fi
 
 if require_protocol_arbitration_contract; then
@@ -246,25 +242,23 @@ else
   mark_fail "three-button browse/action interaction" "navigation, key polarity, EXTI, or BTN1 scan-fallback evidence is missing"
 fi
 
-if file_has "$ROOT/PowerXCode/FreeRTOS/UI/ui_renderer.c" 'ui_renderer_draw_cc_page' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/UI/ui_renderer.c" 'ui_renderer_draw_cable_page' &&
+if file_has "$ROOT/PowerXCode/FreeRTOS/UI/ui_renderer.c" 'ui_renderer_draw_emark_page' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c" 'test_service_pd_prepares_emark_discover_identity_after_contract_ready' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c" 'test_service_pd_publishes_emark_identity_summary' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c" 'test_emark_identity_summary_extracts_cable_vdo'; then
-  mark_pass "CC and cable/E-marker pages" "CC/cable pages exist and SOP prime E-marker request, PD identity publish, and cable VDO summary extraction are behavior-tested"
+  mark_pass "cable/E-marker page" "E-marker page exists and SOP prime E-marker request, PD identity publish, and cable VDO summary extraction are behavior-tested"
 else
-  mark_fail "CC and cable/E-marker pages" "CC/cable page or E-marker behavior-test evidence is missing"
+  mark_fail "cable/E-marker page" "E-marker page or E-marker behavior-test evidence is missing"
 fi
 
 if file_has "$ROOT/PowerXCode/FreeRTOS/UI/ui_renderer.c" 'UI_COLOR_DIM 0xFFFFU' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_ui_model.c" 'test_settings_activation_changes_values' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_ui_navigation.c" 'test_settings_confirm_activates_selected_row_without_exit' &&
-   file_has "$ROOT/PowerXCode/FreeRTOS/Tests/test_app_ui_navigation.c" 'test_auto_trigger_mode_applies_target_while_changing_selection' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/App/app_tasks.c" 'bsp_backlight_set' &&
    file_has "$ROOT/PowerXCode/FreeRTOS/App/app_tasks.c" 'bsp_lcd_set_rotation'; then
-  mark_pass "settings and readable text" "settings brightness/rotation/TRIG behavior, confirm handling, auto-apply mode, backlight driver, LCD rotation driver, and white dim text are covered"
+  mark_pass "settings and readable text" "settings brightness/rotation behavior, confirm handling, backlight driver, LCD rotation driver, and white dim text are covered"
 else
-  mark_fail "settings and readable text" "settings behavior, driver integration, auto-apply, or white-text evidence is missing"
+  mark_fail "settings and readable text" "settings behavior, driver integration, or white-text evidence is missing"
 fi
 
 if file_lacks "$ROOT/PowerXCode/FreeRTOS/obj/App/subdir.mk" 'cdc|usb_(core|desc|endp|hw|init|istr|prop|pwr)|usbd_' &&

@@ -38,6 +38,7 @@ unsigned char bsp_dpdm_sample_lines(bsp_dpdm_sample_t *sample);
 #if defined(PX1_HOST_TEST)
 void bsp_dpdm_mock_set_sample(unsigned char dp_high, unsigned char dm_high);
 void bsp_dpdm_mock_set_voltage_mv(int dp_mv, int dm_mv);
+void bsp_dpdm_mock_set_adc_unavailable(void);
 int bsp_dpdm_mock_get_qc3_offset(void);
 int bsp_dpdm_mock_get_qc3_pulse_count(void);
 unsigned char bsp_dpdm_mock_get_bc_source_mask(void);

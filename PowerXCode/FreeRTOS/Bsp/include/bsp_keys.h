@@ -27,6 +27,7 @@ typedef struct
 #endif
 
 void bsp_keys_init(void);
+uint8_t bsp_keys_boot_probe_btn3(void);
 void bsp_keys_poll(bsp_keys_event_t *event);
 uint8_t bsp_keys_active_mask_from_levels(uint8_t raw_high_mask);
 void bsp_keys_record_irq_mask(uint8_t pressed_mask);

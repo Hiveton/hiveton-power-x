@@ -132,6 +132,65 @@ static uint8_t bsp_keys_read_mask(void)
     return bsp_keys_active_mask_from_levels(bsp_keys_read_raw_high_mask());
 }
 
+uint8_t bsp_keys_boot_probe_btn3(void)
+{
+#if defined(__riscv) && PX1_BOARD_HAS_CONFIRMED_KEY_PINS
+    uint8_t pressed;
+    GPIO_InitTypeDef gpio_init = { 0 };
+
+    RCC_PB2PeriphClockCmd(PX1_KEY1_GPIO_CLOCK |
+                          PX1_KEY2_GPIO_CLOCK |
+                          PX1_KEY3_GPIO_CLOCK |
+                          RCC_PB2Periph_AFIO,
+                          ENABLE);
+    GPIO_PinRemapConfig(GPIO_Remap_SWJ_Disable, ENABLE);
+
+    gpio_init.GPIO_Speed = GPIO_Speed_2MHz;
+    gpio_init.GPIO_Pin = PX1_KEY1_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_Init(PX1_KEY1_GPIO, &gpio_init);
+
+    gpio_init.GPIO_Pin = PX1_KEY2_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_IPD;
+    GPIO_Init(PX1_KEY2_GPIO, &gpio_init);
+
+    gpio_init.GPIO_Pin = PX1_KEY3_PIN;
+    gpio_init.GPIO_Mode = GPIO_Mode_IPU;
+    GPIO_Init(PX1_KEY3_GPIO, &gpio_init);
+
+    pressed = (uint8_t)((bsp_keys_read_mask() & BSP_KEYS_MASK_BTN3) != 0U);
+    if (pressed == 0U)
+    {
+        return 0U;
+    }
+
+    RCC_PB2PeriphClockCmd(PX1_CC1_EXT_RD_CTL_GPIO_CLOCK, ENABLE);
+    gpio_init.GPIO_Pin = PX1_CC1_EXT_RD_CTL_PIN;
+    gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
+    gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
+    GPIO_Init(PX1_CC1_EXT_RD_CTL_GPIO, &gpio_init);
+    GPIO_SetBits(PX1_CC1_EXT_RD_CTL_GPIO, PX1_CC1_EXT_RD_CTL_PIN);
+    {
+        volatile uint32_t guard;
+
+        for (guard = 0U; guard < 1000U; ++guard)
+        {
+        }
+    }
+
+    pressed = (uint8_t)((bsp_keys_read_mask() & BSP_KEYS_MASK_BTN3) != 0U);
+    if (pressed != 0U)
+    {
+        GPIO_ResetBits(PX1_CC1_EXT_RD_CTL_GPIO, PX1_CC1_EXT_RD_CTL_PIN);
+    }
+    return pressed;
+#elif defined(PX1_HOST_TEST)
+    return (uint8_t)((bsp_keys_read_mask() & BSP_KEYS_MASK_BTN3) != 0U);
+#else
+    return 0U;
+#endif
+}
+
 #if (defined(PX1_ENABLE_KEY_DEBUG_STATE) && (PX1_ENABLE_KEY_DEBUG_STATE != 0)) || defined(PX1_HOST_TEST)
 void bsp_keys_get_debug_state(bsp_keys_debug_t *state)
 {

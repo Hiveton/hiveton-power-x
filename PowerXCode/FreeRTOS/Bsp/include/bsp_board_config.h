@@ -70,6 +70,7 @@
 #define PX1_KEY3_PIN GPIO_Pin_15
 
 /* DP/DM ADC sense taps */
+#define PX1_BOARD_HAS_DPDM_ADC_SENSE 1
 #define PX1_ADC_GPIO GPIOB
 #define PX1_ADC_GPIO_CLOCK RCC_PB2Periph_GPIOB
 #define PX1_DP_ADC_PIN GPIO_Pin_0

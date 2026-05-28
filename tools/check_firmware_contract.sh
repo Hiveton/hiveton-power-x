@@ -55,7 +55,7 @@ require_define "$APP_TASKS" "PX1_BUSINESS_STAGE_DIAG" "0"
 require_match \
   "Product build must include protocol arbiter and UI navigation app modules" \
   rg -n \
-  "app_protocol_arbiter\.c|app_ui_navigation\.c|app_trigger_control\.c" \
+  "app_protocol_arbiter\.c|app_ui_navigation\.c" \
   PowerXCode/FreeRTOS/obj/App/subdir.mk
 
 require_match \
@@ -89,9 +89,9 @@ require_match \
   PowerXCode/FreeRTOS/User/main.c
 
 require_match \
-  "Navigation must route trigger, PDO, and QC confirmations to dedicated control paths" \
+  "Navigation must route menu PDO requests to the PD source-capability refresh path" \
   rg -n \
-  "app_trigger_control_apply_auto|app_trigger_control_apply_pd|app_trigger_control_apply_qc" \
+  "service_pd_request_source_capabilities" \
   PowerXCode/FreeRTOS/App/app_ui_navigation.c
 
 require_match \

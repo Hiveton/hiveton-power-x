@@ -25,6 +25,10 @@ run_test() {
 }
 
 "$ROOT/tools/check_firmware_contract.sh"
+bash "$ROOT/tools/test_app_task_scheduling_policy.sh"
+bash "$ROOT/tools/test_lcd_transfer_policy.sh"
+bash "$ROOT/tools/test_runtime_stability_policy.sh"
+bash "$ROOT/tools/test_usbpd_source_cap_policy.sh"
 "$ROOT/tools/test_ui_reference_delta_coverage.sh"
 "$ROOT/tools/check_ui_preview_artifacts.sh"
 "$ROOT/tools/check_ui_reference_delta.sh"
@@ -43,7 +47,12 @@ run_test test_ui_scope_model \
 run_test test_protocol_snapshot \
   PowerXCode/FreeRTOS/Tests/test_protocol_snapshot.c \
   PowerXCode/FreeRTOS/Service/service_pd.c \
+  PowerXCode/FreeRTOS/Service/service_pd_objects.c \
   PowerXCode/FreeRTOS/Service/service_emark.c
+
+run_test test_service_pd_objects \
+  PowerXCode/FreeRTOS/Tests/test_service_pd_objects.c \
+  PowerXCode/FreeRTOS/Service/service_pd_objects.c
 
 run_test test_ui_pages \
   PowerXCode/FreeRTOS/Tests/test_ui_pages.c \
@@ -51,18 +60,15 @@ run_test test_ui_pages \
   PowerXCode/FreeRTOS/UI/ui_model.c \
   PowerXCode/FreeRTOS/UI/ui_widgets.c \
   PowerXCode/FreeRTOS/Service/service_pd.c \
+  PowerXCode/FreeRTOS/Service/service_pd_objects.c \
   PowerXCode/FreeRTOS/Service/service_emark.c
 
 run_test test_app_protocol_arbiter \
   PowerXCode/FreeRTOS/Tests/test_app_protocol_arbiter.c \
   PowerXCode/FreeRTOS/App/app_protocol_arbiter.c \
   PowerXCode/FreeRTOS/Service/service_pd.c \
+  PowerXCode/FreeRTOS/Service/service_pd_objects.c \
   PowerXCode/FreeRTOS/Service/service_emark.c
-
-run_test test_app_trigger_control \
-  PowerXCode/FreeRTOS/Tests/test_app_trigger_control.c \
-  PowerXCode/FreeRTOS/App/app_trigger_control.c \
-  PowerXCode/FreeRTOS/UI/ui_model.c
 
 run_test test_app_ui_navigation \
   PowerXCode/FreeRTOS/Tests/test_app_ui_navigation.c \
@@ -93,10 +99,21 @@ run_test test_bsp_lcd_rotation \
 run_test test_legacy_charge_and_emark \
   PowerXCode/FreeRTOS/Tests/test_legacy_charge_and_emark.c \
   PowerXCode/FreeRTOS/Service/service_legacy_charge.c \
+  PowerXCode/FreeRTOS/Service/service_charge_protocols.c \
   PowerXCode/FreeRTOS/Service/service_emark.c \
   PowerXCode/FreeRTOS/Bsp/bsp_dpdm.c \
   PowerXCode/FreeRTOS/Bsp/bsp_cc_ext_rd.c \
-  PowerXCode/FreeRTOS/Service/service_pd.c
+  PowerXCode/FreeRTOS/Service/service_pd.c \
+  PowerXCode/FreeRTOS/Service/service_pd_objects.c
 
 run_test test_ui_value_format \
   PowerXCode/FreeRTOS/Tests/test_ui_value_format.c
+
+run_test test_ui_dpdm_protocol \
+  PowerXCode/FreeRTOS/Tests/test_ui_dpdm_protocol.c \
+  PowerXCode/FreeRTOS/UI/ui_renderer.c \
+  PowerXCode/FreeRTOS/UI/ui_model.c \
+  PowerXCode/FreeRTOS/UI/ui_widgets.c \
+  PowerXCode/FreeRTOS/Service/service_pd.c \
+  PowerXCode/FreeRTOS/Service/service_pd_objects.c \
+  PowerXCode/FreeRTOS/Service/service_emark.c

@@ -16,14 +16,164 @@
 #if defined(__riscv)
 __attribute__((aligned(4))) static uint8_t g_pd_rx_buf[34];
 __attribute__((aligned(4))) static uint8_t g_pd_tx_buf[34];
-static uint8_t g_pd_ack_buf[2];
-static uint8_t g_pd_rx_length;
-static uint8_t g_pd_rx_candidate_length;
-static uint8_t g_pd_message_pending;
-static uint8_t g_pd_ack_pending;
+__attribute__((aligned(4))) static uint8_t g_pd_ack_buf[4];
+static volatile uint8_t g_pd_ack_pending;
 static uint8_t g_pd_ack_sop;
-static uint8_t g_pd_cc_orientation;
+static volatile uint8_t g_pd_cc_orientation;
+static volatile uint8_t g_pd_monitor_mode = 1U;
 static volatile uint8_t g_pd_detach_pending;
+static volatile uint8_t g_pd_hw_initialized;
+static volatile uint8_t g_pd_sink_hold_requested;
+
+#define PX1_USBPD_TX_RETRY_COUNT 3U
+#define PX1_USBPD_RX_QUEUE_DEPTH 8U
+#define PX1_USBPD_MONITOR_CC_SCAN_MS 40U
+
+typedef struct
+{
+    uint8_t data[BSP_USBPD_PORT_MAX_PACKET_SIZE];
+    uint8_t length;
+    uint8_t sop;
+    uint16_t header;
+} bsp_usbpd_rx_queue_entry_t;
+
+static bsp_usbpd_rx_queue_entry_t g_pd_rx_queue[PX1_USBPD_RX_QUEUE_DEPTH];
+static volatile uint8_t g_pd_rx_queue_head;
+static volatile uint8_t g_pd_rx_queue_tail;
+static volatile uint8_t g_pd_rx_queue_count;
+static volatile uint16_t g_pd_monitor_scan_elapsed_ms;
+static volatile uint32_t g_pd_monitor_scan_rx_total;
+static bsp_usbpd_port_diag_t g_pd_diag;
+
+static uint16_t bsp_usbpd_port_get_u16_le(const uint8_t *bytes)
+{
+    return (uint16_t)bytes[0] | (uint16_t)((uint16_t)bytes[1] << 8);
+}
+
+static uint8_t bsp_usbpd_port_header_ndo(uint16_t header)
+{
+    return (uint8_t)((header >> 12) & 0x07U);
+}
+
+static uint8_t bsp_usbpd_port_header_type(uint16_t header)
+{
+    return (uint8_t)(header & 0x1FU);
+}
+
+static uint8_t bsp_usbpd_port_header_is_goodcrc(uint16_t header)
+{
+    return ((bsp_usbpd_port_header_ndo(header) == 0U) &&
+            (bsp_usbpd_port_header_type(header) == DEF_TYPE_GOODCRC)) ? 1U : 0U;
+}
+
+static void bsp_usbpd_port_reset_queue(void)
+{
+    g_pd_rx_queue_head = 0U;
+    g_pd_rx_queue_tail = 0U;
+    g_pd_rx_queue_count = 0U;
+}
+
+static void bsp_usbpd_port_select_cc(uint8_t cc)
+{
+    if (cc == 2U)
+    {
+        USBPD->CONFIG |= CC_SEL;
+        g_pd_cc_orientation = 2U;
+    }
+    else
+    {
+        USBPD->CONFIG &= ~CC_SEL;
+        g_pd_cc_orientation = 1U;
+    }
+}
+
+static void bsp_usbpd_port_record_rx_frame(uint8_t sop,
+                                           const uint8_t *packet,
+                                           uint8_t length,
+                                           uint16_t status)
+{
+    uint16_t header;
+    uint8_t ndo;
+    uint8_t message_type;
+
+    header = (length >= 2U) ? bsp_usbpd_port_get_u16_le(packet) : 0U;
+    ndo = bsp_usbpd_port_header_ndo(header);
+    message_type = bsp_usbpd_port_header_type(header);
+
+    g_pd_diag.rx_total++;
+    if (sop == PD_RX_SOP0)
+    {
+        g_pd_diag.rx_sop0++;
+    }
+    else if (sop == PD_RX_SOP1_HRST)
+    {
+        g_pd_diag.rx_sop1++;
+    }
+    else if (sop == PD_RX_SOP2_CRST)
+    {
+        g_pd_diag.rx_sop2++;
+    }
+
+    if (bsp_usbpd_port_header_is_goodcrc(header) != 0U)
+    {
+        g_pd_diag.rx_goodcrc++;
+    }
+    else if ((ndo != 0U) && (message_type == 0x01U))
+    {
+        g_pd_diag.rx_source_cap++;
+    }
+    else if ((ndo != 0U) && (message_type == 0x0FU))
+    {
+        g_pd_diag.rx_vdm++;
+    }
+
+    g_pd_diag.last_header = header;
+    g_pd_diag.last_status = status;
+    g_pd_diag.last_len = length;
+    g_pd_diag.last_sop = sop;
+    g_pd_diag.last_msg_type = message_type;
+    g_pd_diag.last_ndo = ndo;
+    g_pd_diag.cc_orientation = g_pd_cc_orientation;
+    g_pd_monitor_scan_elapsed_ms = 0U;
+    g_pd_monitor_scan_rx_total = g_pd_diag.rx_total;
+}
+
+static void bsp_usbpd_port_queue_rx_packet(uint8_t sop,
+                                           const uint8_t *packet,
+                                           uint8_t length,
+                                           uint16_t status)
+{
+    bsp_usbpd_rx_queue_entry_t *entry;
+
+    if ((packet == NULL) ||
+        (length < 2U) ||
+        (length > BSP_USBPD_PORT_MAX_PACKET_SIZE))
+    {
+        return;
+    }
+
+    bsp_usbpd_port_record_rx_frame(sop, packet, length, status);
+    if (bsp_usbpd_port_header_is_goodcrc(g_pd_diag.last_header) != 0U)
+    {
+        return;
+    }
+
+    if (g_pd_rx_queue_count >= PX1_USBPD_RX_QUEUE_DEPTH)
+    {
+        g_pd_rx_queue_tail = (uint8_t)((g_pd_rx_queue_tail + 1U) % PX1_USBPD_RX_QUEUE_DEPTH);
+        g_pd_rx_queue_count--;
+        g_pd_diag.rx_overflow++;
+    }
+
+    entry = &g_pd_rx_queue[g_pd_rx_queue_head];
+    memcpy(entry->data, packet, length);
+    entry->length = length;
+    entry->sop = sop;
+    entry->header = g_pd_diag.last_header;
+    g_pd_rx_queue_head = (uint8_t)((g_pd_rx_queue_head + 1U) % PX1_USBPD_RX_QUEUE_DEPTH);
+    g_pd_rx_queue_count++;
+    g_pd_diag.queue_depth = g_pd_rx_queue_count;
+}
 
 static void bsp_usbpd_port_release_cc_line(void)
 {
@@ -61,6 +211,14 @@ static void bsp_usbpd_port_set_sink_mode(void)
     USBPD->PORT_CC2 = CC_CMP_66 | CC_PD;
 }
 
+static void bsp_usbpd_port_set_monitor_mode_hw(void)
+{
+    USBPD->PORT_CC1 = CC_CMP_45;
+    USBPD->PORT_CC2 = CC_CMP_45;
+    USBPD->PORT_CC1 &= ~(CC_PD | CC_LVE);
+    USBPD->PORT_CC2 &= ~(CC_PD | CC_LVE);
+}
+
 static uint8_t bsp_usbpd_port_detect_orientation(void)
 {
     uint8_t cc1_present;
@@ -85,7 +243,14 @@ static uint8_t bsp_usbpd_port_detect_orientation(void)
         cc2_present = 1U;
     }
 
-    bsp_usbpd_port_set_sink_mode();
+    if (g_pd_monitor_mode != 0U)
+    {
+        bsp_usbpd_port_set_monitor_mode_hw();
+    }
+    else
+    {
+        bsp_usbpd_port_set_sink_mode();
+    }
 
     if (cc1_present != 0U)
     {
@@ -105,14 +270,17 @@ static void bsp_usbpd_port_refresh_orientation(void)
     uint8_t orientation;
 
     orientation = bsp_usbpd_port_detect_orientation();
-    g_pd_cc_orientation = orientation;
     if (orientation == 2U)
     {
-        USBPD->CONFIG |= CC_SEL;
+        bsp_usbpd_port_select_cc(2U);
+    }
+    else if (orientation == 1U)
+    {
+        bsp_usbpd_port_select_cc(1U);
     }
     else
     {
-        USBPD->CONFIG &= ~CC_SEL;
+        g_pd_cc_orientation = 0U;
     }
 }
 
@@ -140,12 +308,20 @@ static void bsp_usbpd_port_enable_cc_switch(void)
 {
     GPIO_InitTypeDef gpio_init = { 0 };
 
-    RCC_PB2PeriphClockCmd(PX1_USBPD_CC_EN_GPIO_CLOCK, ENABLE);
-    gpio_init.GPIO_Pin = PX1_USBPD_CC_EN_PIN;
+    RCC_PB2PeriphClockCmd(PX1_USBPD_CC_EN_GPIO_CLOCK | PX1_CC1_EXT_RD_CTL_GPIO_CLOCK, ENABLE);
+    gpio_init.GPIO_Pin = PX1_USBPD_CC_EN_PIN | PX1_CC1_EXT_RD_CTL_PIN;
     gpio_init.GPIO_Speed = GPIO_Speed_50MHz;
     gpio_init.GPIO_Mode = GPIO_Mode_Out_PP;
     GPIO_Init(PX1_USBPD_CC_EN_GPIO, &gpio_init);
     GPIO_SetBits(PX1_USBPD_CC_EN_GPIO, PX1_USBPD_CC_EN_PIN);
+    if (g_pd_sink_hold_requested != 0U)
+    {
+        GPIO_ResetBits(PX1_CC1_EXT_RD_CTL_GPIO, PX1_CC1_EXT_RD_CTL_PIN);
+    }
+    else
+    {
+        GPIO_SetBits(PX1_CC1_EXT_RD_CTL_GPIO, PX1_CC1_EXT_RD_CTL_PIN);
+    }
 }
 #endif
 
@@ -157,13 +333,17 @@ void bsp_usbpd_port_init(void)
         NVIC_InitTypeDef nvic_init = { 0 };
         memset(g_pd_rx_buf, 0, sizeof(g_pd_rx_buf));
         memset(g_pd_tx_buf, 0, sizeof(g_pd_tx_buf));
-        g_pd_rx_length = 0U;
-        g_pd_rx_candidate_length = 0U;
-        g_pd_message_pending = 0U;
+        memset(g_pd_rx_queue, 0, sizeof(g_pd_rx_queue));
+        memset(&g_pd_diag, 0, sizeof(g_pd_diag));
+        bsp_usbpd_port_reset_queue();
+        g_pd_monitor_scan_elapsed_ms = 0U;
+        g_pd_monitor_scan_rx_total = 0U;
         g_pd_ack_pending = 0U;
         g_pd_ack_sop = UPD_SOP0;
         g_pd_cc_orientation = 0U;
+        g_pd_monitor_mode = (g_pd_sink_hold_requested != 0U) ? 0U : 1U;
         g_pd_detach_pending = 0U;
+        g_pd_hw_initialized = 0U;
         RCC_PB2PeriphClockCmd(PX1_USBPD_CC_GPIO_CLOCK | PX1_USBPD_AFIO_CLOCK, ENABLE);
         RCC_HBPeriphClockCmd(RCC_HBPeriph_USBPD, ENABLE);
         bsp_usbpd_port_enable_cc_switch();
@@ -177,7 +357,14 @@ void bsp_usbpd_port_init(void)
         USBPD->CONFIG = PD_DMA_EN | PD_FILT_ED;
         USBPD->STATUS = BUF_ERR | IF_RX_BIT | IF_RX_BYTE | IF_RX_ACT | IF_RX_RESET | IF_TX_END;
 
-        bsp_usbpd_port_set_sink_mode();
+        if (g_pd_sink_hold_requested != 0U)
+        {
+            bsp_usbpd_port_set_sink_mode();
+        }
+        else
+        {
+            bsp_usbpd_port_set_monitor_mode_hw();
+        }
         bsp_usbpd_port_refresh_orientation();
 
         nvic_init.NVIC_IRQChannel = USBPD_IRQn;
@@ -186,6 +373,7 @@ void bsp_usbpd_port_init(void)
         nvic_init.NVIC_IRQChannelCmd = ENABLE;
         NVIC_Init(&nvic_init);
 
+        g_pd_hw_initialized = 1U;
         bsp_usbpd_port_enter_rx_mode();
     }
 #endif
@@ -204,12 +392,16 @@ uint8_t bsp_usbpd_port_fetch_rx_packet(uint8_t *packet, uint8_t *length)
 
 #if defined(__riscv)
     __disable_irq();
-    if ((g_pd_message_pending != 0U) && (g_pd_rx_length <= BSP_USBPD_PORT_MAX_PACKET_SIZE))
+    if (g_pd_rx_queue_count != 0U)
     {
-        memcpy(packet, g_pd_rx_buf, g_pd_rx_length);
-        *length = g_pd_rx_length;
-        g_pd_message_pending = 0U;
-        g_pd_rx_length = 0U;
+        bsp_usbpd_rx_queue_entry_t *entry;
+
+        entry = &g_pd_rx_queue[g_pd_rx_queue_tail];
+        memcpy(packet, entry->data, entry->length);
+        *length = entry->length;
+        g_pd_rx_queue_tail = (uint8_t)((g_pd_rx_queue_tail + 1U) % PX1_USBPD_RX_QUEUE_DEPTH);
+        g_pd_rx_queue_count--;
+        g_pd_diag.queue_depth = g_pd_rx_queue_count;
         fetch_ok = 1U;
     }
     __enable_irq();
@@ -221,9 +413,67 @@ uint8_t bsp_usbpd_port_fetch_rx_packet(uint8_t *packet, uint8_t *length)
 void bsp_usbpd_port_resume_rx(void)
 {
 #if defined(__riscv)
-    bsp_usbpd_port_set_sink_mode();
-    bsp_usbpd_port_refresh_orientation();
-    bsp_usbpd_port_enter_rx_mode();
+    NVIC_DisableIRQ(USBPD_IRQn);
+    if (g_pd_sink_hold_requested != 0U)
+    {
+        g_pd_monitor_mode = 0U;
+    }
+    if (g_pd_monitor_mode != 0U)
+    {
+        bsp_usbpd_port_set_monitor_mode_hw();
+        if (g_pd_cc_orientation == 0U)
+        {
+            bsp_usbpd_port_select_cc(((USBPD->CONFIG & CC_SEL) != 0U) ? 2U : 1U);
+        }
+    }
+    else
+    {
+        bsp_usbpd_port_set_sink_mode();
+        bsp_usbpd_port_refresh_orientation();
+    }
+    bsp_usbpd_port_prepare_rx_hw();
+    NVIC_EnableIRQ(USBPD_IRQn);
+#endif
+}
+
+void bsp_usbpd_port_set_sink_hold(uint8_t enabled)
+{
+#if defined(__riscv)
+    g_pd_sink_hold_requested = (enabled != 0U) ? 1U : 0U;
+    bsp_usbpd_port_enable_cc_switch();
+    if (g_pd_hw_initialized == 0U)
+    {
+        return;
+    }
+
+    NVIC_DisableIRQ(USBPD_IRQn);
+    g_pd_monitor_mode = (g_pd_sink_hold_requested != 0U) ? 0U : 1U;
+    if (g_pd_monitor_mode == 0U)
+    {
+        bsp_usbpd_port_set_sink_mode();
+        bsp_usbpd_port_refresh_orientation();
+    }
+    else
+    {
+        bsp_usbpd_port_set_monitor_mode_hw();
+        if (g_pd_cc_orientation == 0U)
+        {
+            bsp_usbpd_port_select_cc(((USBPD->CONFIG & CC_SEL) != 0U) ? 2U : 1U);
+        }
+    }
+    bsp_usbpd_port_prepare_rx_hw();
+    NVIC_EnableIRQ(USBPD_IRQn);
+#else
+    (void)enabled;
+#endif
+}
+
+uint8_t bsp_usbpd_port_sink_hold_enabled(void)
+{
+#if defined(__riscv)
+    return (g_pd_sink_hold_requested != 0U) ? 1U : 0U;
+#else
+    return 0U;
 #endif
 }
 
@@ -255,10 +505,82 @@ uint8_t bsp_usbpd_port_current_cc(void)
 #endif
 }
 
+void bsp_usbpd_port_copy_diag(bsp_usbpd_port_diag_t *diag)
+{
+    if (diag == NULL)
+    {
+        return;
+    }
+
+#if defined(__riscv)
+    __disable_irq();
+    *diag = g_pd_diag;
+    diag->queue_depth = g_pd_rx_queue_count;
+    diag->cc_orientation = g_pd_cc_orientation;
+    __enable_irq();
+#else
+    memset(diag, 0, sizeof(*diag));
+#endif
+}
+
+void bsp_usbpd_port_monitor_tick_ms(uint32_t elapsed_ms)
+{
+#if defined(__riscv)
+    if (g_pd_monitor_mode == 0U)
+    {
+        return;
+    }
+
+    if (g_pd_diag.rx_total != g_pd_monitor_scan_rx_total)
+    {
+        g_pd_monitor_scan_rx_total = g_pd_diag.rx_total;
+        g_pd_monitor_scan_elapsed_ms = 0U;
+        return;
+    }
+
+    if (elapsed_ms > 255U)
+    {
+        elapsed_ms = 255U;
+    }
+
+    if (g_pd_monitor_scan_elapsed_ms <= (uint16_t)(0xFFFFU - (uint16_t)elapsed_ms))
+    {
+        g_pd_monitor_scan_elapsed_ms = (uint16_t)(g_pd_monitor_scan_elapsed_ms + (uint16_t)elapsed_ms);
+    }
+    else
+    {
+        g_pd_monitor_scan_elapsed_ms = 0xFFFFU;
+    }
+
+    if (g_pd_monitor_scan_elapsed_ms >= PX1_USBPD_MONITOR_CC_SCAN_MS)
+    {
+        g_pd_monitor_scan_elapsed_ms = 0U;
+        if ((g_pd_rx_queue_count != 0U) || (g_pd_ack_pending != 0U))
+        {
+            return;
+        }
+
+        NVIC_DisableIRQ(USBPD_IRQn);
+        if ((g_pd_rx_queue_count != 0U) || (g_pd_ack_pending != 0U))
+        {
+            NVIC_EnableIRQ(USBPD_IRQn);
+            return;
+        }
+        bsp_usbpd_port_set_monitor_mode_hw();
+        bsp_usbpd_port_select_cc(((USBPD->CONFIG & CC_SEL) != 0U) ? 1U : 2U);
+        bsp_usbpd_port_prepare_rx_hw();
+        NVIC_EnableIRQ(USBPD_IRQn);
+    }
+#else
+    (void)elapsed_ms;
+#endif
+}
+
 static uint8_t bsp_usbpd_port_transmit_packet(const uint8_t *packet, uint8_t length, uint8_t sop)
 {
 #if defined(__riscv)
     uint8_t got_goodcrc;
+    uint8_t tx_attempt;
 
     if ((packet == NULL) || (length == 0U) || (length > sizeof(g_pd_tx_buf)))
     {
@@ -266,49 +588,57 @@ static uint8_t bsp_usbpd_port_transmit_packet(const uint8_t *packet, uint8_t len
     }
 
     got_goodcrc = 0U;
+    tx_attempt = 0U;
+    g_pd_monitor_mode = 0U;
+    bsp_usbpd_port_set_sink_mode();
+    bsp_usbpd_port_refresh_orientation();
     memcpy(g_pd_tx_buf, packet, length);
-    NVIC_DisableIRQ(USBPD_IRQn);
-    USBPD->CONFIG |= IE_TX_END;
-    USBPD->STATUS |= IF_TX_END;
-    bsp_usbpd_port_send_packet(g_pd_tx_buf, length, sop);
-
+    while ((tx_attempt < PX1_USBPD_TX_RETRY_COUNT) && (got_goodcrc == 0U))
     {
-        uint32_t guard;
+        tx_attempt++;
+        NVIC_DisableIRQ(USBPD_IRQn);
+        USBPD->CONFIG |= IE_TX_END;
+        USBPD->STATUS |= IF_TX_END;
+        bsp_usbpd_port_send_packet(g_pd_tx_buf, length, sop);
 
-        guard = 1000000UL;
-        while (((USBPD->STATUS & IF_TX_END) == 0U) && (guard != 0UL))
         {
-            --guard;
-        }
+            uint32_t guard;
 
-        if (guard == 0UL)
-        {
-            bsp_usbpd_port_release_cc_line();
-            bsp_usbpd_port_enter_rx_mode();
-            return 0U;
-        }
-    }
-
-    USBPD->STATUS |= IF_TX_END;
-    bsp_usbpd_port_release_cc_line();
-    bsp_usbpd_port_prepare_rx_hw();
-
-    {
-        uint32_t guard;
-
-        guard = 250UL;
-        while (guard-- != 0UL)
-        {
-            if ((USBPD->STATUS & IF_RX_ACT) != 0U)
+            guard = 1000000UL;
+            while (((USBPD->STATUS & IF_TX_END) == 0U) && (guard != 0UL))
             {
-                USBPD->STATUS |= IF_RX_ACT;
-                if ((USBPD->BMC_BYTE_CNT == 6U) && ((g_pd_rx_buf[0] & 0x1FU) == DEF_TYPE_GOODCRC))
-                {
-                    got_goodcrc = 1U;
-                    break;
-                }
+                --guard;
             }
-            Delay_Us(3U);
+
+            if (guard == 0UL)
+            {
+                bsp_usbpd_port_release_cc_line();
+                bsp_usbpd_port_enter_rx_mode();
+                return 0U;
+            }
+        }
+
+        USBPD->STATUS |= IF_TX_END;
+        bsp_usbpd_port_release_cc_line();
+        bsp_usbpd_port_prepare_rx_hw();
+
+        {
+            uint32_t guard;
+
+            guard = 250UL;
+            while (guard-- != 0UL)
+            {
+                if ((USBPD->STATUS & IF_RX_ACT) != 0U)
+                {
+                    USBPD->STATUS |= IF_RX_ACT;
+                    if ((USBPD->BMC_BYTE_CNT == 6U) && ((g_pd_rx_buf[0] & 0x1FU) == DEF_TYPE_GOODCRC))
+                    {
+                        got_goodcrc = 1U;
+                        break;
+                    }
+                }
+                Delay_Us(3U);
+            }
         }
     }
 
@@ -347,18 +677,36 @@ uint8_t bsp_usbpd_port_transmit_sop_prime(const uint8_t *packet, uint8_t length)
 void bsp_usbpd_irq_handler(void)
 {
 #if defined(__riscv)
-    if ((USBPD->STATUS & IF_RX_ACT) != 0U)
+    uint16_t status;
+
+    status = USBPD->STATUS;
+
+    if ((status & IF_RX_ACT) != 0U)
     {
         uint8_t rx_sop;
+        uint8_t rx_length;
 
+        rx_sop = (uint8_t)(status & MASK_PD_STAT);
+        rx_length = (uint8_t)USBPD->BMC_BYTE_CNT;
         USBPD->STATUS |= IF_RX_ACT;
-        rx_sop = USBPD->STATUS & MASK_PD_STAT;
-        if (((rx_sop == PD_RX_SOP0) || (rx_sop == PD_RX_SOP1_HRST)) &&
-            (USBPD->BMC_BYTE_CNT >= 6U))
+        if ((g_pd_monitor_mode != 0U) &&
+            ((rx_sop == PD_RX_SOP0) || (rx_sop == PD_RX_SOP1_HRST) || (rx_sop == PD_RX_SOP2_CRST)) &&
+            (rx_length >= 2U) &&
+            (rx_length <= BSP_USBPD_PORT_MAX_PACKET_SIZE))
         {
-            if ((USBPD->BMC_BYTE_CNT != 6U) || ((g_pd_rx_buf[0] & 0x1FU) != DEF_TYPE_GOODCRC))
+            bsp_usbpd_port_queue_rx_packet(rx_sop, g_pd_rx_buf, rx_length, status);
+            bsp_usbpd_port_enter_rx_mode();
+        }
+        else if (((rx_sop == PD_RX_SOP0) || (rx_sop == PD_RX_SOP1_HRST)) &&
+                 (rx_length >= 6U) &&
+                 (rx_length <= BSP_USBPD_PORT_MAX_PACKET_SIZE))
+        {
+            uint16_t header;
+
+            header = bsp_usbpd_port_get_u16_le(g_pd_rx_buf);
+            if (bsp_usbpd_port_header_is_goodcrc(header) == 0U)
             {
-                g_pd_rx_candidate_length = USBPD->BMC_BYTE_CNT;
+                bsp_usbpd_port_queue_rx_packet(rx_sop, g_pd_rx_buf, rx_length, status);
 
                 Delay_Us(30U);
                 g_pd_ack_buf[0] = 0x41U;
@@ -371,7 +719,8 @@ void bsp_usbpd_irq_handler(void)
         }
     }
 
-    if ((USBPD->STATUS & IF_TX_END) != 0U)
+    status = USBPD->STATUS;
+    if ((status & IF_TX_END) != 0U)
     {
         bsp_usbpd_port_release_cc_line();
         USBPD->STATUS |= IF_TX_END;
@@ -379,14 +728,7 @@ void bsp_usbpd_irq_handler(void)
         if (g_pd_ack_pending != 0U)
         {
             g_pd_ack_pending = 0U;
-            if ((g_pd_rx_candidate_length != 0U) &&
-                (g_pd_rx_candidate_length <= BSP_USBPD_PORT_MAX_PACKET_SIZE))
-            {
-                g_pd_rx_length = g_pd_rx_candidate_length;
-                g_pd_message_pending = 1U;
-            }
-            g_pd_rx_candidate_length = 0U;
-            NVIC_DisableIRQ(USBPD_IRQn);
+            bsp_usbpd_port_enter_rx_mode();
         }
         else
         {
@@ -394,32 +736,50 @@ void bsp_usbpd_irq_handler(void)
         }
     }
 
-    if ((USBPD->STATUS & IF_RX_RESET) != 0U)
+    status = USBPD->STATUS;
+    if ((status & IF_RX_RESET) != 0U)
     {
         USBPD->STATUS |= IF_RX_RESET;
-        bsp_usbpd_port_pause_rx_mode();
-        g_pd_cc_orientation = 0U;
-        g_pd_detach_pending = 1U;
-        g_pd_message_pending = 0U;
-        g_pd_rx_length = 0U;
-        g_pd_rx_candidate_length = 0U;
-        g_pd_ack_pending = 0U;
-        g_pd_ack_sop = UPD_SOP0;
-        bsp_usbpd_port_set_sink_mode();
-        bsp_usbpd_port_refresh_orientation();
+        g_pd_diag.rx_reset++;
+        if (g_pd_monitor_mode != 0U)
+        {
+            bsp_usbpd_port_set_monitor_mode_hw();
+            bsp_usbpd_port_enter_rx_mode();
+        }
+        else
+        {
+            bsp_usbpd_port_pause_rx_mode();
+            g_pd_cc_orientation = 0U;
+            g_pd_detach_pending = 1U;
+            bsp_usbpd_port_reset_queue();
+            g_pd_diag.queue_depth = 0U;
+            g_pd_ack_pending = 0U;
+            g_pd_ack_sop = UPD_SOP0;
+            bsp_usbpd_port_set_sink_mode();
+            bsp_usbpd_port_refresh_orientation();
+        }
     }
 
-    if ((USBPD->STATUS & BUF_ERR) != 0U)
+    status = USBPD->STATUS;
+    if ((status & BUF_ERR) != 0U)
     {
         USBPD->STATUS |= BUF_ERR;
-        bsp_usbpd_port_pause_rx_mode();
-        g_pd_detach_pending = 1U;
-        g_pd_message_pending = 0U;
-        g_pd_rx_length = 0U;
-        g_pd_rx_candidate_length = 0U;
-        g_pd_ack_pending = 0U;
-        bsp_usbpd_port_set_sink_mode();
-        bsp_usbpd_port_refresh_orientation();
+        g_pd_diag.rx_buf_err++;
+        if (g_pd_monitor_mode != 0U)
+        {
+            bsp_usbpd_port_set_monitor_mode_hw();
+            bsp_usbpd_port_enter_rx_mode();
+        }
+        else
+        {
+            bsp_usbpd_port_pause_rx_mode();
+            g_pd_detach_pending = 1U;
+            bsp_usbpd_port_reset_queue();
+            g_pd_diag.queue_depth = 0U;
+            g_pd_ack_pending = 0U;
+            bsp_usbpd_port_set_sink_mode();
+            bsp_usbpd_port_refresh_orientation();
+        }
     }
 #endif
 }

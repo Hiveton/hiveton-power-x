@@ -143,7 +143,7 @@ fi
 step "PX1 UI preview evidence"
 STATUS_UI="fail"
 require_file "$UI_REPORT"
-for page in main protocol trigger cc cable settings scope pdo qc; do
+for page in main protocol trigger cc emark settings scope pdo qc; do
   require_report_page "$page"
 done
 STATUS_UI="pass"

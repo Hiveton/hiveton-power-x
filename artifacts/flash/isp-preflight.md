@@ -1,28 +1,23 @@
 # PX1 WCH ISP Preflight
 
-- Time: 2026-05-19 11:40:17 +0800
-- Status: `no-isp-device`
-- Message: No WCH ISP USB device found; expected 4348:55e0 or 1a86:55e0.
+- Time: 2026-05-23 14:17:08 +0800
+- Status: `failed`
+- Message: wchisp not found; install it or set WCHISP=/path/to/wchisp.
 - Wait seconds: `0`
-- wchisp: `/Users/hiveton/.cargo/bin/wchisp`
+- wchisp: `not found`
 
 ## wchisp info
 
-- wchisp info exit: `1`
+- wchisp info exit: `127`
 
 ```text
-03:40:16 [INFO] Opening USB device #0
-Error: No WCH ISP USB device found(4348:55e0 or 1a86:55e0 device not found at index #0)
+wchisp not found
 ```
 
 ## system_profiler USB Probe
 
 ```text
-          Serial Number: Not Provided
-          Link Speed: 12 Mb/s
-          USB Vendor ID: 0x1a86
-          USB Product ID: 0x7523
-          USB Product Version: 0x8134
+No WCH/CH32 ISP USB match found in system_profiler.
 ```
 
 ## system_profiler USB Snapshot
@@ -30,161 +25,242 @@ Error: No WCH ISP USB device found(4348:55e0 or 1a86:55e0 device not found at in
 ```text
 ### SPUSBHostDataType
 USB:
-    USB 4.0 Bus:
-      Location ID: 0x08000000
-      Connection Type: Built-in
-      Driver: AppleT6050USBXHCIAUSS
-    USB 3.1 Bus:
-      Location ID: 0x01000000
-      Connection Type: Built-in
-      Driver: AppleT8142USBXHCI
-        USB Serial:
-          Location ID: 0x01100000
-          Connection Type: Removable
-          Serial Number: Not Provided
-          Link Speed: 12 Mb/s
-          USB Vendor ID: 0x1a86
-          USB Product ID: 0x7523
-          USB Product Version: 0x8134
-          Power Allocated: 0.52 W (104 mA)
-    USB 3.1 Bus:
-      Location ID: 0x00000000
-      Connection Type: Built-in
-      Driver: AppleT8142USBXHCI
     USB 3.1 Bus:
       Location ID: 0x02000000
       Connection Type: Built-in
-      Driver: AppleT8142USBXHCI
-        USB2.1 Hub:
+      Driver: AppleT8132USBXHCI
+        USB3 Gen2 Hub:
+          Location ID: 0x02200000
+          Connection Type: Built-in
+          Manufacturer: Apple
+          Serial Number: 7423J07
+          Link Speed: 10 Gb/s
+          USB Vendor ID: 0x05ac
+          USB Product ID: 0x800c
+          USB Product Version: 0x5615
+        USB2 Hub:
           Location ID: 0x02100000
+          Connection Type: Built-in
+          Manufacturer: Apple
+          Serial Number: 7423J07
+          Link Speed: 480 Mb/s
+          USB Vendor ID: 0x05ac
+          USB Product ID: 0x800b
+          USB Product Version: 0x5615
+    USB 3.1 Bus:
+      Location ID: 0x01000000
+      Connection Type: Built-in
+      Driver: AppleT8132USBXHCI
+    USB 3.1 Bus:
+      Location ID: 0x00000000
+      Connection Type: Built-in
+      Driver: AppleT8132USBXHCI
+    USB 3.1 Bus:
+      Location ID: 0x03000000
+      Connection Type: Built-in
+      Driver: AppleT8132USBXHCI
+        USB 2.0 Hub:
+          Location ID: 0x03100000
           Connection Type: Removable
-          Manufacturer: Generic
           Serial Number: Not Provided
           Link Speed: 480 Mb/s
-          USB Vendor ID: 0x2717
-          USB Product ID: 0x50ae
-          USB Product Version: 0x0131
-        USB3.2 Hub:
-          Location ID: 0x02200000
-          Connection Type: Removable
-          Manufacturer: Generic
-          Serial Number: Not Provided
-          Link Speed: 5 Gb/s
-          USB Vendor ID: 0x2717
-          USB Product ID: 0x50ae
-          USB Product Version: 0x0131
+          USB Vendor ID: 0x1a40
+          USB Product ID: 0x0801
+          USB Product Version: 0x0100
+            Rapoo 2.4G Wireless Device:
+              Location ID: 0x03120000
+              Connection Type: Removable
+              Manufacturer: RAPOO
+              Serial Number: Not Provided
+              Link Speed: 12 Mb/s
+              USB Vendor ID: 0x24ae
+              USB Product ID: 0x2013
+              USB Product Version: 0x0110
+            Bluetooth Keyboard:
+              Location ID: 0x03110000
+              Connection Type: Removable
+              Manufacturer: BY Tech
+              Serial Number: Not Provided
+              Link Speed: 12 Mb/s
+              USB Vendor ID: 0x05ac
+              USB Product ID: 0x024f
+              USB Product Version: 0x0102
+              Power Allocated: 2.5 W (500 mA)
+            Redmi 电脑音箱:
+              Location ID: 0x03130000
+              Connection Type: Removable
+              Manufacturer: MV-SILICON
+              Serial Number: 20190808
+              Link Speed: 12 Mb/s
+              USB Vendor ID: 0x2717
+              USB Product ID: 0x5086
+              USB Product Version: 0x0100
 ```
 
 ## ioreg USB Probe
 
 ```text
-  |       "IOServiceDEXTEntitlements" = (("com.apple.developer.driverkit.transport.usb"))
-  |       "Device Speed" = 1
-  |       "idVendor" = 6790
-  |       "kUSBProductString" = "USB Serial"
-  |       "IOGeneralInterest" = "IOCommand is not serializable"
+No WCH/CH32 ISP USB match found in ioreg.
 ```
 
 ## ioreg USB Snapshot
 
 ```text
-  | +-o USB Serial@01100000  <class IOUSBHostDevice, id 0x10005fef7, registered, matched, active, busy 0 (34 ms), retain 31>
-  |       "idProduct" = 29987
-  |       "USB Product Name" = "USB Serial"
-  |       "idVendor" = 6790
-  |       "kUSBProductString" = "USB Serial"
-    +-o USB2.1 Hub@02100000  <class IOUSBHostDevice, id 0x10005fbc8, registered, matched, active, busy 0 (30 ms), retain 35>
-    |     "idProduct" = 20654
-    |     "USB Product Name" = "USB2.1 Hub"
-    |     "USB Vendor Name" = "Generic"
-    |     "idVendor" = 10007
-    |     "kUSBProductString" = "USB2.1 Hub"
-    |     "kUSBVendorString" = "Generic"
-    +-o USB3.2 Hub@02200000  <class IOUSBHostDevice, id 0x10005fbca, registered, matched, active, busy 0 (33 ms), retain 35>
-          "idProduct" = 20654
-          "USB Product Name" = "USB3.2 Hub"
-          "USB Vendor Name" = "Generic"
-          "idVendor" = 10007
-          "kUSBProductString" = "USB3.2 Hub"
-          "kUSBVendorString" = "Generic"
+  | +-o USB3 Gen2 Hub@02200000  <class IOUSBHostDevice, id 0x100000a41, registered, matched, active, busy 0 (8 ms), retain 27>
+  | |     "USB Vendor Name" = "Apple"
+  | |     "kUSBProductString" = "USB3 Gen2 Hub"
+  | |     "kUSBVendorString" = "Apple"
+  | |     "USB Product Name" = "USB3 Gen2 Hub"
+  | |     "idVendor" = 1452
+  | |     "idProduct" = 32780
+  | +-o USB2 Hub@02100000  <class IOUSBHostDevice, id 0x100000a53, registered, matched, active, busy 0 (8 ms), retain 27>
+  |       "USB Vendor Name" = "Apple"
+  |       "kUSBProductString" = "USB2 Hub"
+  |       "kUSBVendorString" = "Apple"
+  |       "USB Product Name" = "USB2 Hub"
+  |       "idVendor" = 1452
+  |       "idProduct" = 32779
+    +-o USB 2.0 Hub@03100000  <class IOUSBHostDevice, id 0x10009f040, registered, matched, active, busy 0 (187 ms), retain 35>
+      |   "idProduct" = 2049
+      |   "USB Product Name" = "USB 2.0 Hub"
+      |   "idVendor" = 6720
+      |   "kUSBProductString" = "USB 2.0 Hub"
+      +-o Rapoo 2.4G Wireless Device@03120000  <class IOUSBHostDevice, id 0x10009f052, registered, matched, active, busy 0 (57 ms), retain 38>
+      |     "idProduct" = 8211
+      |     "USB Product Name" = "Rapoo 2.4G Wireless Device"
+      |     "USB Vendor Name" = "RAPOO"
+      |     "idVendor" = 9390
+      |     "kUSBProductString" = "Rapoo 2.4G Wireless Device"
+      |     "kUSBVendorString" = "RAPOO"
+      +-o Bluetooth Keyboard@03110000  <class IOUSBHostDevice, id 0x10009f06e, registered, matched, active, busy 0 (47 ms), retain 33>
+      |     "idProduct" = 591
+      |     "USB Product Name" = "Bluetooth Keyboard"
+      |     "USB Vendor Name" = "BY Tech"
+      |     "idVendor" = 1452
+      |     "kUSBProductString" = "Bluetooth Keyboard"
+      |     "kUSBVendorString" = "BY Tech"
+      +-o Redmi 电脑音箱@03130000  <class IOUSBHostDevice, id 0x10009f0a3, registered, matched, active, busy 0 (73 ms), retain 34>
+            "idProduct" = 20614
+            "USB Product Name" = 
+            "USB Vendor Name" = "MV-SILICON"
+            "idVendor" = 10007
+            "kUSBProductString" = 
+            "kUSBVendorString" = "MV-SILICON"
 ```
 
 ## IOUSBHostDevice Probe
 
 ```text
-  |   "IOServiceDEXTEntitlements" = (("com.apple.developer.driverkit.transport.usb"))
-  |   "Device Speed" = 1
-  |   "idVendor" = 6790
-  |   "kUSBProductString" = "USB Serial"
-  |   "IOGeneralInterest" = "IOCommand is not serializable"
---
-  |     "IOProbeScore" = 90000
-  |     "IOMatchCategory" = "IODefaultMatchCategory"
-  |     "idVendor" = 6790
-  |     "IOPersonalityPublisher" = "com.apple.DriverKit-AppleUSBCHCOM"
-  |     "CFBundleIdentifierKernel" = "com.apple.kpi.iokit"
---
-  | |   "iInterface" = 0
-  | |   "bAlternateSetting" = 0
-  | |   "idVendor" = 6790
-  | |   "bInterfaceNumber" = 0
-  | |   "bInterfaceClass" = 255
---
-  |   |   "IOProbeScore" = 89999
-  |   |   "IOUserServerCDHash" = "35abcf2198eda08b7cfe03dd7e8542f18acca8b8"
-  |   |   "IOMatchedPersonality" = {"IOClass"="IOUserSerial","CFBundleIdentifier"="com.apple.DriverKit-AppleUSBCHCOM","IOProviderClass"="IOUSBHostInterface","IOUserServerCDHash"="35abcf2198eda08b7cfe03dd7e8542f18acca8b8","idProduct"=29987,"bConfigurationValue"=1,"IOUserServerName"="com.apple.DriverKit.AppleUSBCHCOM","idVendor"=6790,"IOPersonalityPublisher"="com.apple.DriverKit-AppleUSBCHCOM","CFBundleIdentifierKernel"="com.apple.driver.driverkit.serial","kOSBundleDextUniqueIdentifier"=<b516df71b274189db0be8c2bd815cdeae43a0e7cd0638e25b1d328fef54b8e9d>,"bInterfaceNumber"=0,"IOUserClass"="AppleUSBCHCOM"}
-  |   |   "IOTTYBaseName" = "usbserial-"
-  |   |   "IOUserClasses" = ("AppleUSBCHCOM","IOUserUSBSerial","IOUserSerial","IOService","OSObject")
---
-  |   |   "CFBundleIdentifier" = "com.apple.DriverKit-AppleUSBCHCOM"
-  |   |   "IOServiceDEXTEntitlements" = "com.apple.developer.driverkit.family.serial"
-  |   |   "idVendor" = 6790
-  |   |   "IOMatchCategory" = "IODefaultMatchCategory"
-  |   |   "IOTTYSuffix" = "110"
+No WCH/CH32 ISP USB match found in IOUSBHostDevice.
 ```
 
 ## IOUSBHostDevice Snapshot
 
 ```text
-+-o USB Serial@01100000  <class IOUSBHostDevice, id 0x10005fef7, registered, matched, active, busy 0 (34 ms), retain 31>
-  |   "idProduct" = 29987
-  |   "USB Product Name" = "USB Serial"
-  |   "idVendor" = 6790
-  |   "kUSBProductString" = "USB Serial"
-  +-o AppleUSBHostCompositeDevice  <class AppleUSBHostCompositeDevice, id 0x10005fef9, !registered, !matched, active, busy 0, retain 4>
-  |     "idProduct" = 29987
-  |     "idVendor" = 6790
-  +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10005fefa, registered, matched, active, busy 0 (24 ms), retain 11>
-  | |   "idProduct" = 29987
-  | |   "USB Product Name" = "USB Serial"
-  | |   "idVendor" = 6790
-  | +-o AppleUSBCHCOM  <class IOUserSerial, id 0x10005ff00, registered, matched, active, busy 0 (1 ms), retain 11>
-  |   |   "idProduct" = 29987
-  |   |   "idVendor" = 6790
-+-o USB2.1 Hub@02100000  <class IOUSBHostDevice, id 0x10005fbc8, registered, matched, active, busy 0 (30 ms), retain 35>
-  |   "idProduct" = 20654
-  |   "USB Product Name" = "USB2.1 Hub"
-  |   "USB Vendor Name" = "Generic"
-  |   "idVendor" = 10007
-  |   "kUSBProductString" = "USB2.1 Hub"
-  |   "kUSBVendorString" = "Generic"
-  +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10005fbcd, !registered, !matched, active, busy 0 (0 ms), retain 8>
-  |     "USB Vendor Name" = "Generic"
-  |     "idProduct" = 20654
-  |     "USB Product Name" = "USB2.1 Hub"
-  |     "idVendor" = 10007
-+-o USB3.2 Hub@02200000  <class IOUSBHostDevice, id 0x10005fbca, registered, matched, active, busy 0 (33 ms), retain 35>
-  |   "idProduct" = 20654
-  |   "USB Product Name" = "USB3.2 Hub"
-  |   "USB Vendor Name" = "Generic"
-  |   "idVendor" = 10007
-  |   "kUSBProductString" = "USB3.2 Hub"
-  |   "kUSBVendorString" = "Generic"
-  +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10005fbd1, !registered, !matched, active, busy 0 (0 ms), retain 8>
-  |     "USB Vendor Name" = "Generic"
-  |     "idProduct" = 20654
-  |     "USB Product Name" = "USB3.2 Hub"
-  |     "idVendor" = 10007
++-o USB2 Hub@02100000  <class IOUSBHostDevice, id 0x100000a53, registered, matched, active, busy 0 (8 ms), retain 27>
+  |   "USB Vendor Name" = "Apple"
+  |   "kUSBProductString" = "USB2 Hub"
+  |   "kUSBVendorString" = "Apple"
+  |   "USB Product Name" = "USB2 Hub"
+  |   "idVendor" = 1452
+  |   "idProduct" = 32779
+  +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x100000a57, !registered, !matched, active, busy 0, retain 8>
+  |     "idProduct" = 32779
+  |     "USB Product Name" = "USB2 Hub"
+  |     "USB Vendor Name" = "Apple"
+  |     "idVendor" = 1452
++-o USB3 Gen2 Hub@02200000  <class IOUSBHostDevice, id 0x100000a41, registered, matched, active, busy 0 (8 ms), retain 27>
+  |   "USB Vendor Name" = "Apple"
+  |   "kUSBProductString" = "USB3 Gen2 Hub"
+  |   "kUSBVendorString" = "Apple"
+  |   "USB Product Name" = "USB3 Gen2 Hub"
+  |   "idVendor" = 1452
+  |   "idProduct" = 32780
+  +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x100000a4e, !registered, !matched, active, busy 0, retain 8>
+  |     "idProduct" = 32780
+  |     "USB Product Name" = "USB3 Gen2 Hub"
+  |     "USB Vendor Name" = "Apple"
+  |     "idVendor" = 1452
++-o USB 2.0 Hub@03100000  <class IOUSBHostDevice, id 0x10009f040, registered, matched, active, busy 0 (187 ms), retain 35>
+  |   "idProduct" = 2049
+  |   "USB Product Name" = "USB 2.0 Hub"
+  |   "idVendor" = 6720
+  |   "kUSBProductString" = "USB 2.0 Hub"
+  | | +-o Bluetooth Keyboard@03110000  <class IOUSBHostDevice, id 0x10009f06e, registered, matched, active, busy 0 (47 ms), retain 33>
+  | |   |   "idProduct" = 591
+  | |   |   "USB Product Name" = "Bluetooth Keyboard"
+  | |   |   "USB Vendor Name" = "BY Tech"
+  | |   |   "idVendor" = 1452
+  | |   |   "kUSBProductString" = "Bluetooth Keyboard"
+  | |   |   "kUSBVendorString" = "BY Tech"
+  | |   +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10009f07e, registered, matched, active, busy 0 (40 ms), retain 11>
+  | |   | |   "idProduct" = 591
+  | |   | |   "USB Product Name" = "Bluetooth Keyboard"
+  | |   | |   "USB Vendor Name" = "BY Tech"
+  | |   | |   "idVendor" = 1452
+  | |   +-o IOUSBHostInterface@1  <class IOUSBHostInterface, id 0x10009f081, registered, matched, active, busy 0 (31 ms), retain 11>
+  | |   | |   "idProduct" = 591
+  | |   | |   "USB Product Name" = "Bluetooth Keyboard"
+  | |   | |   "USB Vendor Name" = "BY Tech"
+  | |   | |   "idVendor" = 1452
+  | | +-o Rapoo 2.4G Wireless Device@03120000  <class IOUSBHostDevice, id 0x10009f052, registered, matched, active, busy 0 (57 ms), retain 38>
+  | |   |   "idProduct" = 8211
+  | |   |   "USB Product Name" = "Rapoo 2.4G Wireless Device"
+  | |   |   "USB Vendor Name" = "RAPOO"
+  | |   |   "idVendor" = 9390
+  | |   |   "kUSBProductString" = "Rapoo 2.4G Wireless Device"
+  | |   |   "kUSBVendorString" = "RAPOO"
+  | |   +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10009f058, registered, matched, active, busy 0 (38 ms), retain 11>
+  | |   | |   "idProduct" = 8211
+  | |   | |   "USB Product Name" = "Rapoo 2.4G Wireless Device"
+  | |   | |   "USB Vendor Name" = "RAPOO"
+  | |   | |   "idVendor" = 9390
+  | |   +-o IOUSBHostInterface@1  <class IOUSBHostInterface, id 0x10009f05b, registered, matched, active, busy 0 (45 ms), retain 11>
+  | |   | |   "idProduct" = 8211
+  | |   | |   "USB Product Name" = "Rapoo 2.4G Wireless Device"
+  | |   | |   "USB Vendor Name" = "RAPOO"
+  | |   | |   "idVendor" = 9390
+  | |   +-o IOUSBHostInterface@2  <class IOUSBHostInterface, id 0x10009f05d, registered, matched, active, busy 0 (40 ms), retain 11>
+  | |     |   "idProduct" = 8211
+  | |     |   "USB Product Name" = "Rapoo 2.4G Wireless Device"
+  | |     |   "USB Vendor Name" = "RAPOO"
+  | |     |   "idVendor" = 9390
+  | | +-o Redmi 电脑音箱@03130000  <class IOUSBHostDevice, id 0x10009f0a3, registered, matched, active, busy 0 (73 ms), retain 34>
+  | |   |   "idProduct" = 20614
+  | |   |   "USB Product Name" = 
+  | |   |   "USB Vendor Name" = "MV-SILICON"
+  | |   |   "idVendor" = 10007
+  | |   |   "kUSBProductString" = 
+  | |   |   "kUSBVendorString" = "MV-SILICON"
+  | |   +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10009f0ab, registered, matched, active, busy 0 (14 ms), retain 10>
+  | |   | |   "idProduct" = 20614
+  | |   | |   "USB Product Name" = 
+  | |   | |   "USB Vendor Name" = "MV-SILICON"
+  | |   | |   "idVendor" = 10007
+  | |   +-o IOUSBHostInterface@1  <class IOUSBHostInterface, id 0x10009f0ac, registered, matched, active, busy 0 (7 ms), retain 9>
+  | |   | |   "idProduct" = 20614
+  | |   | |   "USB Product Name" = 
+  | |   | |   "USB Vendor Name" = "MV-SILICON"
+  | |   | |   "idVendor" = 10007
+  | |   +-o IOUSBHostInterface@2  <class IOUSBHostInterface, id 0x10009f0ad, registered, matched, active, busy 0 (5 ms), retain 9>
+  | |   | |   "idProduct" = 20614
+  | |   | |   "USB Product Name" = 
+  | |   | |   "USB Vendor Name" = "MV-SILICON"
+  | |   | |   "idVendor" = 10007
+  | |   +-o IOUSBHostInterface@3  <class IOUSBHostInterface, id 0x10009f0b0, registered, matched, active, busy 0 (50 ms), retain 11>
+  | |   | |   "idProduct" = 20614
+  | |   | |   "USB Product Name" = 
+  | |   | |   "USB Vendor Name" = "MV-SILICON"
+  | |   | |   "idVendor" = 10007
+  | |   +-o IOUSBHostInterface@4  <class IOUSBHostInterface, id 0x10009f0b1, registered, matched, active, busy 0 (26 ms), retain 6>
+  | |         "idProduct" = 20614
+  | |         "USB Product Name" = 
+  | |         "USB Vendor Name" = "MV-SILICON"
+  | |         "idVendor" = 10007
+  +-o IOUSBHostInterface@0  <class IOUSBHostInterface, id 0x10009f043, !registered, !matched, active, busy 0 (0 ms), retain 8>
+  |     "idProduct" = 2049
+  |     "USB Product Name" = "USB 2.0 Hub"
+  |     "idVendor" = 6720
 ```
 
 ## Serial Ports
@@ -192,51 +268,50 @@ USB:
 ```text
 /dev/cu.Bluetooth-Incoming-Port
 /dev/cu.debug-console
-/dev/cu.usbserial-110
 ```
 
 ## Thunderbolt/USB4 Port Snapshot
 
 ```text
 Thunderbolt/USB4:
-    Thunderbolt/USB4 Bus 2:
+    Thunderbolt/USB4 Bus 3:
       Vendor Name: Apple Inc.
-      Device Name: MacBook Pro
-      UID: 0x05AC90B6F8704662
+      Device Name: iOS
+      UID: 0x05AC548A1F036493
       Route String: 0
-      Domain UUID: 45C9DA81-EB67-41A9-B982-3B1B444326C9
+      Domain UUID: 36FB56D6-9A9A-4437-9069-B782FB8601DB
       Port:
           Status: No device connected
           Link Status: 0x100
-          Speed: Up to 120 Gb/s
-          Receptacle: 3
+          Speed: Up to 40 Gb/s
+          Receptacle: 4
     Thunderbolt/USB4 Bus 1:
       Vendor Name: Apple Inc.
-      Device Name: MacBook Pro
-      UID: 0x05AC90B6F8704661
+      Device Name: iOS
+      UID: 0x05AC548A1F036491
       Route String: 0
-      Domain UUID: 55E96ABC-F334-4D61-8B5D-8E7ACE856EC4
+      Domain UUID: 8BCC5182-4757-4CF7-9169-9FAA1C087C9F
       Port:
           Status: No device connected
           Link Status: 0x100
-          Speed: Up to 120 Gb/s
+          Speed: Up to 40 Gb/s
           Receptacle: 2
     Thunderbolt/USB4 Bus 0:
       Vendor Name: Apple Inc.
-      Device Name: MacBook Pro
-      UID: 0x05AC90B6F8704660
+      Device Name: iOS
+      UID: 0x05AC548A1F036490
       Route String: 0
-      Domain UUID: E764559B-B393-401E-B7D6-D41CEF6E1A81
+      Domain UUID: 9C94FDD0-0737-4ACA-AB07-EA430099168F
       Port:
           Status: No device connected
           Link Status: 0x100
-          Speed: Up to 120 Gb/s
+          Speed: Up to 40 Gb/s
           Receptacle: 1
 ```
 
 ## USB Host Diagnosis
 
-A WCH USB serial device is visible, but no WCH ISP product ID 0x55e0 was found.
+USB devices may be present, but no WCH/CH32 ISP VID/PID was found.
 
 ## ISP Entry Notes
 

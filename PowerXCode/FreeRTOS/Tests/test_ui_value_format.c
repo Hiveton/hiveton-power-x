@@ -17,6 +17,7 @@ int main(void)
     assert_format(5000, "5.0000");
     assert_format(12345, "12.345");
     assert_format(123456, "123.46");
-    assert_format(-10, "0.0000");
+    assert_format(-10, "0.0100");
+    assert_format(-12345, "12.345");
     return 0;
 }

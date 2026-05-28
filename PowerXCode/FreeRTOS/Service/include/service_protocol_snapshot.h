@@ -32,8 +32,14 @@ typedef struct
     int32_t contract_ma;
     uint8_t emark_present;
     uint8_t emark_current_a;
+    uint8_t emark_max_voltage_v;
+    uint8_t emark_cable_length_m;
+    uint8_t emark_epr_capable;
     uint8_t emark_usb_speed_grade;
     uint8_t emark_cable_type;
+    uint8_t emark_vdo_version;
+    uint8_t emark_firmware_version;
+    uint8_t emark_hardware_version;
     int8_t legacy_step_offset;
     protocol_request_state_t request_state;
     int32_t target_mv;

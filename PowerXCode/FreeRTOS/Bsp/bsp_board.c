@@ -6,6 +6,6 @@
 void bsp_board_init(void)
 {
     bsp_backlight_init();
-    bsp_backlight_set(100U);
     bsp_lcd_init();
+    bsp_lcd_fill_color(0x0000U);
 }

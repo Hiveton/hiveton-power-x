@@ -2,6 +2,7 @@
 
 #include "app_protocol_arbiter.h"
 #include "app_ui_navigation.h"
+#include <limits.h>
 #include "FreeRTOS.h"
 #include "task.h"
 
@@ -19,7 +20,13 @@
 #include "ui_renderer.h"
 
 #define UI_TASK_POLL_PERIOD_MS 20U
-#define UI_TASK_REFRESH_TICKS 13U
+#define UI_TASK_LIVE_REFRESH_MS 20U
+#define UI_TASK_PROTOCOL_REFRESH_MS 100U
+#define UI_TASK_SLOW_REFRESH_MS 250U
+#define APP_TASK_PRIORITY_MEASURE (tskIDLE_PRIORITY + 3U)
+#define APP_TASK_PRIORITY_PROTOCOL (tskIDLE_PRIORITY + 3U)
+#define APP_TASK_PRIORITY_UI (tskIDLE_PRIORITY + 2U)
+#define APP_TASK_PRIORITY_LEGACY (tskIDLE_PRIORITY + 1U)
 #define PX1_KEY_DEBUG_SCREEN 0
 #define PX1_MINIMAL_HEARTBEAT_DIAG 0
 #define PX1_BUSINESS_HEARTBEAT_DIAG 0
@@ -28,14 +35,46 @@
 #define PX1_ENABLE_PROTOCOL_TASK 1
 #define PX1_ENABLE_LEGACY_TASK 1
 
-#define APP_TASK_STACK_MEASURE 512U
-#define APP_TASK_STACK_PROTOCOL 512U
+#define APP_TASK_STACK_MEASURE 640U
+#define APP_TASK_STACK_PROTOCOL 640U
 #define APP_TASK_STACK_LEGACY 384U
-#define APP_TASK_STACK_UI 768U
+#define APP_TASK_STACK_UI 1024U
 
 static measure_snapshot_t g_measure_snapshot;
 static app_protocol_arbiter_t g_protocol_arbiter;
+static TickType_t g_measure_snapshot_tick;
 static volatile uint8_t g_measure_snapshot_ready;
+static volatile uint8_t g_trigger_boot_requested;
+
+static uint16_t app_ui_refresh_period_ms(ui_page_t page)
+{
+    switch (page)
+    {
+        case UI_PAGE_MAIN:
+        case UI_PAGE_DPDM:
+        case UI_PAGE_POWER_STATS:
+            return UI_TASK_LIVE_REFRESH_MS;
+        case UI_PAGE_SCOPE:
+        case UI_PAGE_RIPPLE:
+        case UI_PAGE_TRIGGER_SELECT:
+        case UI_PAGE_TRIGGER_ADJUST:
+        case UI_PAGE_PROTOCOL:
+        case UI_PAGE_PDO:
+        case UI_PAGE_EMARK:
+        case UI_PAGE_CAPACITY:
+            return UI_TASK_PROTOCOL_REFRESH_MS;
+        case UI_PAGE_MENU:
+        case UI_PAGE_SETTINGS:
+            return UI_TASK_SLOW_REFRESH_MS;
+        default:
+            return UI_TASK_LIVE_REFRESH_MS;
+    }
+}
+
+void app_tasks_set_trigger_boot(uint8_t enabled)
+{
+    g_trigger_boot_requested = (enabled != 0U) ? 1U : 0U;
+}
 
 #if PX1_KEY_DEBUG_SCREEN || PX1_MINIMAL_HEARTBEAT_DIAG
 static uint8_t app_keys_event_mask(const bsp_keys_event_t *keys)
@@ -133,6 +172,7 @@ static void app_publish_measure_snapshot(const measure_snapshot_t *snapshot)
 
     taskENTER_CRITICAL();
     g_measure_snapshot = *snapshot;
+    g_measure_snapshot_tick = xTaskGetTickCount();
     g_measure_snapshot_ready = 1U;
     taskEXIT_CRITICAL();
 }
@@ -154,17 +194,79 @@ static void app_publish_protocol_snapshot(app_protocol_source_t source,
 
 static void app_copy_measure_snapshot(measure_snapshot_t *snapshot)
 {
+    TickType_t publish_tick;
+    TickType_t now_tick;
+    uint32_t elapsed_ms;
+    int32_t live_current_ma;
+    int32_t live_power_mw;
+    uint8_t ready;
+
     if (snapshot == 0)
     {
         return;
     }
 
     taskENTER_CRITICAL();
-    if (g_measure_snapshot_ready != 0U)
+    ready = g_measure_snapshot_ready;
+    if (ready != 0U)
     {
         *snapshot = g_measure_snapshot;
+        publish_tick = g_measure_snapshot_tick;
+    }
+    else
+    {
+        publish_tick = xTaskGetTickCount();
     }
     taskEXIT_CRITICAL();
+
+    if (ready == 0U)
+    {
+        return;
+    }
+
+    now_tick = xTaskGetTickCount();
+    elapsed_ms = (uint32_t)((now_tick - publish_tick) * portTICK_PERIOD_MS);
+    if (elapsed_ms == 0U)
+    {
+        return;
+    }
+
+    if ((UINT32_MAX - snapshot->stat_elapsed_ms) < elapsed_ms)
+    {
+        snapshot->stat_elapsed_ms = UINT32_MAX;
+    }
+    else
+    {
+        snapshot->stat_elapsed_ms += elapsed_ms;
+    }
+    snapshot->stat_elapsed_s = snapshot->stat_elapsed_ms / 1000U;
+
+    live_current_ma = snapshot->current_avg_ma;
+    if (live_current_ma == INT32_MIN)
+    {
+        live_current_ma = INT32_MAX;
+    }
+    else if (live_current_ma < 0)
+    {
+        live_current_ma = -live_current_ma;
+    }
+
+    live_power_mw = snapshot->power_mw;
+    if (live_power_mw == INT32_MIN)
+    {
+        live_power_mw = INT32_MAX;
+    }
+    else if (live_power_mw < 0)
+    {
+        live_power_mw = -live_power_mw;
+    }
+
+    snapshot->stat_capacity_mah = (uint32_t)((snapshot->stat_charge_ma_ms +
+                                              (uint64_t)live_current_ma * elapsed_ms) /
+                                             3600000ULL);
+    snapshot->stat_energy_mwh = (uint32_t)((snapshot->stat_energy_mw_ms +
+                                            (uint64_t)live_power_mw * elapsed_ms) /
+                                           3600000ULL);
 }
 
 static void app_copy_protocol_snapshot(protocol_snapshot_t *snapshot)
@@ -185,6 +287,7 @@ static void measure_task(void *pvParameters)
     measure_snapshot_t snapshot;
     uint8_t voltage_valid;
     uint8_t current_valid;
+    TickType_t last_sample_tick;
 
     (void)pvParameters;
 
@@ -203,24 +306,39 @@ static void measure_task(void *pvParameters)
     snapshot.current_valid = current_valid;
     snapshot.power_valid = (uint8_t)((voltage_valid != 0U) && (current_valid != 0U));
     app_publish_measure_snapshot(&snapshot);
+    last_sample_tick = xTaskGetTickCount();
 
     for (;;)
     {
         if (bsp_adc_dma_fetch_window(&window) != 0)
         {
-            measure_service_process_samples(window.voltage,
-                                            window.current,
-                                            BSP_ADC_SAMPLE_COUNT,
-                                            &snapshot);
+            TickType_t now_tick;
+            uint32_t elapsed_ms;
+
+            now_tick = xTaskGetTickCount();
+            elapsed_ms = (uint32_t)((now_tick - last_sample_tick) * portTICK_PERIOD_MS);
+            last_sample_tick = now_tick;
+            measure_service_process_samples_precise_timed(window.voltage,
+                                                          window.current,
+                                                          window.current_deci_ma,
+                                                          BSP_ADC_SAMPLE_COUNT,
+                                                          elapsed_ms,
+                                                          &snapshot);
 
             snapshot.voltage_valid = voltage_valid;
             snapshot.current_valid = current_valid;
             snapshot.power_valid = (uint8_t)((voltage_valid != 0U) && (current_valid != 0U));
+            snapshot.mcu_temp_valid = (uint8_t)bsp_adc_dma_read_mcu_temp_deci_c(&snapshot.mcu_temp_deci_c);
             if (current_valid == 0U)
             {
                 snapshot.current_avg_ma = 0;
+                snapshot.current_avg_deci_ma = 0;
                 snapshot.current_min_ma = 0;
                 snapshot.current_max_ma = 0;
+                snapshot.current_min_deci_ma = 0;
+                snapshot.current_max_deci_ma = 0;
+                snapshot.stat_current_avg_deci_ma = 0;
+                snapshot.stat_current_max_deci_ma = 0;
                 snapshot.power_mw = 0;
                 snapshot.power_valid = 0U;
             }
@@ -232,6 +350,7 @@ static void measure_task(void *pvParameters)
                 snapshot.voltage_max_mv = 0;
                 snapshot.ripple_pp_est_mv = 0U;
                 snapshot.ripple_level = 0U;
+                snapshot.ripple_sample_count = 0U;
                 snapshot.power_mw = 0;
                 snapshot.power_valid = 0U;
             }
@@ -291,6 +410,10 @@ static void protocol_task(void *pvParameters)
         {
             (void)bsp_usbpd_port_transmit_sop(tx_packet, tx_length);
         }
+        else if (service_pd_prepare_source_cap_request(tx_packet, &tx_length) != 0U)
+        {
+            (void)bsp_usbpd_port_transmit_sop(tx_packet, tx_length);
+        }
         else if (service_pd_prepare_emark_identity_request(tx_packet, &tx_length) != 0U)
         {
             (void)bsp_usbpd_port_transmit_sop_prime(tx_packet, tx_length);
@@ -301,6 +424,7 @@ static void protocol_task(void *pvParameters)
         service_pd_handle_vbus_measurement((measure_snapshot.voltage_valid != 0U) ? measure_snapshot.voltage_avg_mv : 0,
                                            20U);
         service_pd_handle_timeout_ms(20U);
+        bsp_usbpd_port_monitor_tick_ms(20U);
         service_pd_copy_snapshot(&snapshot);
         protocol_snapshot_set_cc_orientation(&snapshot, bsp_usbpd_port_current_cc());
         app_publish_protocol_snapshot(APP_PROTOCOL_SOURCE_PD, &snapshot);
@@ -358,7 +482,7 @@ static void ui_task(void *pvParameters)
     measure_snapshot_t measure_snapshot = { 0 };
     protocol_snapshot_t protocol_snapshot = { 0 };
     ui_model_state_t ui_state;
-    uint8_t refresh_ticks;
+    TickType_t last_redraw_tick;
 
     (void)pvParameters;
 
@@ -371,10 +495,17 @@ static void ui_task(void *pvParameters)
     bsp_lcd_fill_rect(0U, 0U, LCD_WIDTH, 4U, 0x07E0U);
 #endif
     ui_model_init(&ui_state);
-    bsp_backlight_set(ui_model_brightness_percent(&ui_state));
+    if (g_trigger_boot_requested != 0U)
+    {
+        ui_model_open_trigger(&ui_state);
+        service_pd_set_sink_hold(1U);
+        service_pd_request_source_capabilities();
+    }
     bsp_lcd_set_rotation(ui_model_rotation_degrees(&ui_state));
     ui_renderer_init();
-    refresh_ticks = UI_TASK_REFRESH_TICKS;
+    ui_pages_draw(&ui_state, &measure_snapshot, &protocol_snapshot);
+    bsp_backlight_set(ui_model_brightness_percent(&ui_state));
+    last_redraw_tick = xTaskGetTickCount();
 #if PX1_KEY_DEBUG_SCREEN
     event_count = 0U;
 #endif
@@ -408,7 +539,7 @@ static void ui_task(void *pvParameters)
 #if PX1_MINIMAL_HEARTBEAT_DIAG
         (void)measure_snapshot;
         (void)protocol_snapshot;
-        (void)refresh_ticks;
+        (void)last_redraw_tick;
         (void)event_count;
         (void)redraw;
         (void)ui_state;
@@ -423,6 +554,8 @@ static void ui_task(void *pvParameters)
 #endif
         app_copy_measure_snapshot(&measure_snapshot);
         app_copy_protocol_snapshot(&protocol_snapshot);
+        ui_renderer_update_scope_history(&measure_snapshot);
+        ui_renderer_update_ripple_history(&ui_state, &measure_snapshot);
         ui_model_advance_liveness(&ui_state);
 
         if (app_ui_navigation_apply(&ui_state, &protocol_snapshot, &keys) != 0U)
@@ -432,14 +565,27 @@ static void ui_task(void *pvParameters)
             redraw = 1U;
         }
 
-        if (refresh_ticks >= UI_TASK_REFRESH_TICKS)
+        if (redraw == 0U)
         {
-            refresh_ticks = 0U;
-            redraw = 1U;
-        }
-        else
-        {
-            ++refresh_ticks;
+            uint16_t period_ms;
+
+            period_ms = app_ui_refresh_period_ms(ui_state.page);
+            if (period_ms != 0U)
+            {
+                TickType_t now_tick;
+                TickType_t period_ticks;
+
+                now_tick = xTaskGetTickCount();
+                period_ticks = pdMS_TO_TICKS(period_ms);
+                if (period_ticks == 0U)
+                {
+                    period_ticks = 1U;
+                }
+                if ((now_tick - last_redraw_tick) >= period_ticks)
+                {
+                    redraw = 1U;
+                }
+            }
         }
 
 #if PX1_KEY_DEBUG_SCREEN
@@ -459,6 +605,7 @@ static void ui_task(void *pvParameters)
         if (redraw != 0U)
         {
             ui_pages_draw(&ui_state, &measure_snapshot, &protocol_snapshot);
+            last_redraw_tick = xTaskGetTickCount();
         }
 #endif
 #if PX1_BUSINESS_HEARTBEAT_DIAG
@@ -479,7 +626,7 @@ void app_tasks_create(void)
                          "ui",
                          APP_TASK_STACK_UI,
                          NULL,
-                         tskIDLE_PRIORITY + 4U,
+                         APP_TASK_PRIORITY_UI,
                          NULL);
     configASSERT(status == pdPASS);
 
@@ -489,11 +636,11 @@ void app_tasks_create(void)
 
 #if PX1_ENABLE_PROTOCOL_TASK
     status = xTaskCreate(protocol_task,
-                         "protocol",
-                         APP_TASK_STACK_PROTOCOL,
-                         NULL,
-                         tskIDLE_PRIORITY + 2U,
-                         NULL);
+                             "protocol",
+                             APP_TASK_STACK_PROTOCOL,
+                             NULL,
+                             APP_TASK_PRIORITY_PROTOCOL,
+                             NULL);
     configASSERT(status == pdPASS);
 #endif
 
@@ -502,18 +649,18 @@ void app_tasks_create(void)
                          "measure",
                          APP_TASK_STACK_MEASURE,
                          NULL,
-                         tskIDLE_PRIORITY + 2U,
+                         APP_TASK_PRIORITY_MEASURE,
                          NULL);
     configASSERT(status == pdPASS);
 #endif
 
 #if PX1_ENABLE_LEGACY_TASK
     status = xTaskCreate(legacy_charge_task,
-                         "legacy",
-                         APP_TASK_STACK_LEGACY,
-                         NULL,
-                         tskIDLE_PRIORITY + 1U,
-                         NULL);
+                              "legacy",
+                              APP_TASK_STACK_LEGACY,
+                              NULL,
+                              APP_TASK_PRIORITY_LEGACY,
+                              NULL);
     configASSERT(status == pdPASS);
 #endif
 

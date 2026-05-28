@@ -22,9 +22,9 @@ uint16_t ui_widgets_scale_u16(int32_t value,
                               int32_t max_value,
                               uint16_t limit)
 {
-    int64_t numerator;
-    int64_t denominator;
-    int64_t scaled;
+    uint32_t numerator;
+    uint32_t denominator;
+    uint32_t scaled;
 
     if (limit == 0U)
     {
@@ -46,16 +46,10 @@ uint16_t ui_widgets_scale_u16(int32_t value,
         return limit;
     }
 
-    denominator = (int64_t)max_value - (int64_t)min_value;
-    numerator = ((int64_t)value - (int64_t)min_value) * (int64_t)limit;
-    scaled = numerator / denominator;
-
-    if (scaled < 0)
-    {
-        return 0U;
-    }
-
-    if (scaled > (int64_t)limit)
+    denominator = (uint32_t)(max_value - min_value);
+    numerator = (uint32_t)(value - min_value);
+    scaled = (numerator * (uint32_t)limit) / denominator;
+    if (scaled > limit)
     {
         return limit;
     }

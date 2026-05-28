@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include "bsp_dpdm.h"
+#include "service_charge_protocols.h"
 #include "service_emark.h"
 #include "service_legacy_charge.h"
 
@@ -61,6 +62,33 @@ static void test_legacy_charge_request_drives_dpdm_mode(void)
     service_legacy_charge_request_protocol(LEGACY_PROTOCOL_NONE);
     assert(bsp_dpdm_get_mode() == BSP_DPDM_MODE_HIZ);
     assert(service_legacy_charge_detect() == LEGACY_PROTOCOL_NONE);
+}
+
+static void test_charge_protocols_port_qc2_and_bc12_rules(void)
+{
+    bsp_dpdm_level_t dp_level;
+    bsp_dpdm_level_t dm_level;
+    int32_t actual_mv;
+
+    assert(charge_protocol_qc2_levels_for_voltage_mv(9000, &dp_level, &dm_level, &actual_mv) == 1U);
+    assert(actual_mv == 9000);
+    assert(dp_level == BSP_DPDM_LEVEL_3300MV);
+    assert(dm_level == BSP_DPDM_LEVEL_600MV);
+
+    assert(charge_protocol_qc2_levels_for_voltage_mv(12000, &dp_level, &dm_level, &actual_mv) == 1U);
+    assert(actual_mv == 12000);
+    assert(dp_level == BSP_DPDM_LEVEL_600MV);
+    assert(dm_level == BSP_DPDM_LEVEL_600MV);
+
+    assert(charge_protocol_qc2_levels_for_voltage_mv(20000, &dp_level, &dm_level, &actual_mv) == 1U);
+    assert(actual_mv == 20000);
+    assert(dp_level == BSP_DPDM_LEVEL_3300MV);
+    assert(dm_level == BSP_DPDM_LEVEL_3300MV);
+
+    assert(charge_protocol_qc3_offset_for_voltage_mv(15000, 5000, -7, 75) == 50);
+    assert(charge_protocol_bc12_type_from_probe(0U, 0U) == CHARGE_BC12_TYPE_SDP);
+    assert(charge_protocol_bc12_type_from_probe(1U, 0U) == CHARGE_BC12_TYPE_CDP);
+    assert(charge_protocol_bc12_type_from_probe(1U, 1U) == CHARGE_BC12_TYPE_DCP);
 }
 
 static void test_legacy_charge_records_requested_voltage_and_qc3_steps(void)
@@ -123,6 +151,48 @@ static void test_legacy_charge_poll_reports_qc_state_and_dpdm_voltage(void)
     assert(snapshot.target_mv == 9000);
     service_legacy_charge_copy_request(&request);
     assert(request.status == LEGACY_CHARGE_STATUS_READY);
+}
+
+static void test_legacy_charge_poll_ignores_dpdm_when_adc_unavailable(void)
+{
+    protocol_snapshot_t snapshot;
+
+    service_legacy_charge_init();
+    bsp_dpdm_mock_set_voltage_mv(600, 600);
+    assert(service_legacy_charge_poll(5000, 50U, &snapshot) == 1U);
+    assert(snapshot.kind == PROTOCOL_KIND_OTHER);
+
+    bsp_dpdm_mock_set_adc_unavailable();
+    assert(service_legacy_charge_poll(5000, 50U, &snapshot) == 1U);
+    assert(snapshot.kind == PROTOCOL_KIND_NONE);
+}
+
+static void test_legacy_charge_poll_reports_zero_dpdm_when_adc_unavailable_during_request(void)
+{
+    protocol_snapshot_t snapshot;
+
+    service_legacy_charge_init();
+    bsp_dpdm_mock_set_adc_unavailable();
+    service_legacy_charge_request_voltage_mv(LEGACY_PROTOCOL_QC2, 9000);
+
+    assert(service_legacy_charge_poll(5000, 50U, &snapshot) == 1U);
+    assert(snapshot.kind == PROTOCOL_KIND_QC);
+    assert(snapshot.dp_mv == 0);
+    assert(snapshot.dm_mv == 0);
+}
+
+static void test_legacy_charge_poll_keeps_adc_dpdm_when_requesting(void)
+{
+    protocol_snapshot_t snapshot;
+
+    service_legacy_charge_init();
+    bsp_dpdm_mock_set_voltage_mv(610, 570);
+    service_legacy_charge_request_voltage_mv(LEGACY_PROTOCOL_QC2, 9000);
+
+    assert(service_legacy_charge_poll(5000, 50U, &snapshot) == 1U);
+    assert(snapshot.kind == PROTOCOL_KIND_QC);
+    assert(snapshot.dp_mv == 610);
+    assert(snapshot.dm_mv == 570);
 }
 
 static void test_legacy_charge_poll_clears_when_dpdm_bias_disappears(void)
@@ -272,6 +342,8 @@ static void test_emark_identity_summary_stays_conservative_without_cable_vdm(voi
     assert(summary.current_capacity_a == 0U);
     assert(summary.usb_speed_grade == 0U);
     assert(summary.cable_type == 0U);
+    assert(summary.max_voltage_v == 0U);
+    assert(summary.cable_length_m == 0U);
 }
 
 static void test_emark_identity_summary_extracts_cable_vdo(void)
@@ -280,7 +352,7 @@ static void test_emark_identity_summary_extracts_cable_vdo(void)
         0x00000000UL,
         0x00000000UL,
         0x00000000UL,
-        (2UL << 18) | (1UL << 13) | (2UL << 5) | 3UL,
+        (2UL << 18) | (1UL << 13) | (3UL << 9) | (2UL << 5) | 3UL,
     };
     emark_summary_t summary = { 0 };
 
@@ -291,6 +363,8 @@ static void test_emark_identity_summary_extracts_cable_vdo(void)
     assert(summary.current_capacity_a == 5U);
     assert(summary.usb_speed_grade == 3U);
     assert(summary.cable_type == 2U);
+    assert(summary.max_voltage_v == 50U);
+    assert(summary.cable_length_m == 1U);
 }
 
 static void test_emark_identity_summary_ignores_non_cable_vdo_current_bits(void)
@@ -315,8 +389,12 @@ int main(void)
     test_legacy_charge_detect_defaults_to_none();
     test_legacy_charge_does_not_report_qc_from_passive_dpdm_bias();
     test_legacy_charge_request_drives_dpdm_mode();
+    test_charge_protocols_port_qc2_and_bc12_rules();
     test_legacy_charge_records_requested_voltage_and_qc3_steps();
     test_legacy_charge_poll_reports_qc_state_and_dpdm_voltage();
+    test_legacy_charge_poll_ignores_dpdm_when_adc_unavailable();
+    test_legacy_charge_poll_reports_zero_dpdm_when_adc_unavailable_during_request();
+    test_legacy_charge_poll_keeps_adc_dpdm_when_requesting();
     test_legacy_charge_poll_clears_when_dpdm_bias_disappears();
     test_dpdm_sampling_preserves_bc_source_state();
     test_legacy_charge_qc3_voltage_uses_200mv_steps();

@@ -168,7 +168,7 @@ write_ui_preview_report() {
     printf '| page | size | nonblack | frame | cyan | green | amber | white |\n'
     printf '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n'
 
-    for page in main protocol trigger cc cable settings scope pdo qc; do
+    for page in main dpdm power capacity protocol pdo emark scope ripple settings menu trigger-select trigger-adjust; do
       file="$OUT_DIR/current-ui-${page}-160x80.png"
       width="$(read_dimension pixelWidth "$file")"
       height="$(read_dimension pixelHeight "$file")"
@@ -189,27 +189,27 @@ write_ui_preview_report() {
 acquire_ui_preview_lock
 "$ROOT/tools/render_ui_preview.sh" >/dev/null
 
-require_png_size "$OUT_DIR/current-ui-atlas.png" 480 240
-require_png_size "$OUT_DIR/current-ui-atlas-4x.png" 1920 960
+require_png_size "$OUT_DIR/current-ui-atlas.png" 640 320
+require_png_size "$OUT_DIR/current-ui-atlas-4x.png" 2560 1280
 
-for page in main protocol trigger cc cable settings scope pdo qc; do
+for page in main dpdm power capacity protocol pdo emark scope ripple settings menu trigger-select trigger-adjust; do
   require_png_size "$OUT_DIR/current-ui-${page}-160x80.png" 160 80
   require_png_nonblank "$OUT_DIR/current-ui-${page}-160x80.png" "$page"
-  require_png_frame "$OUT_DIR/current-ui-${page}-160x80.png" "$page"
+  if [[ "$page" != "menu" ]]; then
+    require_png_frame "$OUT_DIR/current-ui-${page}-160x80.png" "$page"
+  fi
   require_png_size "$OUT_DIR/current-ui-${page}-640x320.png" 640 320
 done
 
-require_page_color_content scope cyan 250
+require_page_color_content scope cyan 150
 require_page_color_content scope green 300
-require_page_color_content scope amber 120
-require_page_color_content pdo cyan 150
+require_page_color_content ripple cyan 150
+require_page_color_content ripple green 120
+require_page_color_content ripple white 180
+require_page_color_content pdo cyan 80
 require_page_color_content pdo green 60
-require_page_color_content pdo amber 150
+require_page_color_content pdo amber 90
 require_page_color_content pdo white 250
-require_page_color_content qc cyan 180
-require_page_color_content qc green 180
-require_page_color_content qc amber 350
-require_page_color_content qc white 60
 
 write_ui_preview_report
 

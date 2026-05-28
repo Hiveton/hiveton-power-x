@@ -24,6 +24,9 @@ static unsigned char g_mock_bc_source_mask;
 #endif
 
 #if defined(__riscv)
+#define PX1_DPDM_ADC_CAL_WAIT_GUARD 100000UL
+#define PX1_DPDM_ADC_EOC_WAIT_GUARD 100000UL
+
 static uint8_t g_dpdm_adc_ready;
 
 static void bsp_dpdm_gpio_to_floating(void)
@@ -122,7 +125,9 @@ static void bsp_dpdm_adc_init(void)
 {
     GPIO_InitTypeDef gpio_init = { 0 };
     ADC_InitTypeDef adc_init = { 0 };
+    uint32_t guard;
 
+#if (PX1_BOARD_HAS_DPDM_ADC_SENSE != 0)
     RCC_PB2PeriphClockCmd(PX1_ADC_GPIO_CLOCK | RCC_PB2Periph_ADC1, ENABLE);
     RCC_ADCCLKConfig(RCC_PCLK2_Div8);
 
@@ -143,22 +148,53 @@ static void bsp_dpdm_adc_init(void)
     ADC_FIFO_Cmd(ADC1, ENABLE);
     ADC_BufferCmd(ADC1, DISABLE);
     ADC_ResetCalibration(ADC1);
-    while (ADC_GetResetCalibrationStatus(ADC1))
+    guard = PX1_DPDM_ADC_CAL_WAIT_GUARD;
+    while ((ADC_GetResetCalibrationStatus(ADC1)) &&
+           (guard != 0UL))
     {
+        --guard;
+    }
+    if (guard == 0UL)
+    {
+        g_dpdm_adc_ready = 0U;
+        return;
     }
     ADC_StartCalibration(ADC1);
-    while (ADC_GetCalibrationStatus(ADC1))
+    guard = PX1_DPDM_ADC_CAL_WAIT_GUARD;
+    while ((ADC_GetCalibrationStatus(ADC1)) &&
+           (guard != 0UL))
     {
+        --guard;
+    }
+    if (guard == 0UL)
+    {
+        g_dpdm_adc_ready = 0U;
+        return;
     }
     g_dpdm_adc_ready = 1U;
+#else
+    (void)gpio_init;
+    (void)adc_init;
+    g_dpdm_adc_ready = 0U;
+#endif
 }
 
 static uint16_t bsp_dpdm_adc_read_raw(uint8_t channel)
 {
+    uint32_t guard;
+
     ADC_RegularChannelConfig(ADC1, channel, 1U, ADC_SampleTime_CyclesMode7);
+    ADC_ClearFlag(ADC1, ADC_FLAG_EOC);
     ADC_SoftwareStartConvCmd(ADC1, ENABLE);
-    while (ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) == RESET)
+    guard = PX1_DPDM_ADC_EOC_WAIT_GUARD;
+    while ((ADC_GetFlagStatus(ADC1, ADC_FLAG_EOC) == RESET) &&
+           (guard != 0UL))
     {
+        --guard;
+    }
+    if (guard == 0UL)
+    {
+        return 0U;
     }
 
     return ADC_GetConversionValue(ADC1);
@@ -348,28 +384,24 @@ unsigned char bsp_dpdm_sample_lines(bsp_dpdm_sample_t *sample)
 
 #if defined(__riscv)
     {
-        uint32_t afio_cr;
+        int dp_mv;
+        int dm_mv;
 
         sample->voltage_valid = 0U;
+        sample->dp_high = 0U;
+        sample->dm_high = 0U;
         sample->dp_mv = 0;
         sample->dm_mv = 0;
         if (g_dpdm_adc_ready != 0U)
         {
-            sample->dp_mv = bsp_dpdm_adc_raw_to_mv(bsp_dpdm_adc_read_raw(ADC_Channel_8));
-            sample->dm_mv = bsp_dpdm_adc_raw_to_mv(bsp_dpdm_adc_read_raw(ADC_Channel_9));
+            dp_mv = bsp_dpdm_adc_raw_to_mv(bsp_dpdm_adc_read_raw(ADC_Channel_8));
+            dm_mv = bsp_dpdm_adc_raw_to_mv(bsp_dpdm_adc_read_raw(ADC_Channel_9));
+            sample->dp_mv = dp_mv;
+            sample->dm_mv = dm_mv;
+            sample->dp_high = (dp_mv >= 300) ? 1U : 0U;
+            sample->dm_high = (dm_mv >= 300) ? 1U : 0U;
             sample->voltage_valid = 1U;
         }
-
-        afio_cr = AFIO->CR;
-        afio_cr &= ~(AFIO_CR_UPD_BC_VSRC | AFIO_CR_UDM_BC_VSRC);
-        afio_cr |= AFIO_CR_UPD_BC_CMPE | AFIO_CR_UDM_BC_CMPE;
-        AFIO->CR = afio_cr;
-        __asm volatile ("nop");
-        __asm volatile ("nop");
-        afio_cr = AFIO->CR;
-        sample->dp_high = ((afio_cr & AFIO_CR_UPD_BC_CMPO) != 0U) ? 1U : 0U;
-        sample->dm_high = ((afio_cr & AFIO_CR_UDM_BC_CMPO) != 0U) ? 1U : 0U;
-        bsp_dpdm_restore_bc_source_from_levels();
     }
 #elif defined(PX1_HOST_TEST)
     *sample = g_mock_sample;
@@ -397,6 +429,15 @@ void bsp_dpdm_mock_set_voltage_mv(int dp_mv, int dm_mv)
     g_mock_sample.dm_mv = dm_mv;
     g_mock_sample.dp_high = (dp_mv >= 300) ? 1U : 0U;
     g_mock_sample.dm_high = (dm_mv >= 300) ? 1U : 0U;
+}
+
+void bsp_dpdm_mock_set_adc_unavailable(void)
+{
+    g_mock_sample.dp_high = 0U;
+    g_mock_sample.dm_high = 0U;
+    g_mock_sample.voltage_valid = 0U;
+    g_mock_sample.dp_mv = 0;
+    g_mock_sample.dm_mv = 0;
 }
 
 int bsp_dpdm_mock_get_qc3_offset(void)

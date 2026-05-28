@@ -65,7 +65,7 @@ main-build: FreeRTOS.elf secondary-outputs
 
 # Tool invocations
 FreeRTOS.elf: $(OBJS) $(USER_OBJS_ESCAPE)
-	@	riscv-none-embed-gcc -march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -msave-restore -fmax-errors=20 -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Wunused -g -T "/Users/hiveton/HivetonCode/HivetonPowerX/PowerXCode/FreeRTOS/Ld/Link.ld" -nostartfiles -Xlinker --gc-sections -Wl,-Map,"FreeRTOS.map" --specs=nano.specs --specs=nosys.specs -o "FreeRTOS.elf" $(OBJS) $(LIBS)
+	@	riscv-none-embed-gcc -march=rv32imacxw -mabi=ilp32 -msmall-data-limit=8 -msave-restore -fmax-errors=20 -Os -fmessage-length=0 -fsigned-char -ffunction-sections -fdata-sections -fno-common -Wunused -g -T "/Users/xuehui/CodeingProjects/hiveton-power-x/PowerXCode/FreeRTOS/Ld/Link.ld" -nostartfiles -Xlinker --gc-sections -Wl,-Map,"FreeRTOS.map" --specs=nano.specs --specs=nosys.specs -o "FreeRTOS.elf" $(OBJS) $(LIBS)
 FreeRTOS.hex: FreeRTOS.elf
 	@	riscv-none-embed-objcopy -O ihex "FreeRTOS.elf" "FreeRTOS.hex"
 FreeRTOS.bin: FreeRTOS.elf

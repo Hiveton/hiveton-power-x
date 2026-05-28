@@ -104,14 +104,8 @@ require_delta_under() {
 acquire_ui_preview_lock
 "$ROOT/tools/render_ui_preview.sh" >/dev/null
 
-require_delta_under main 2.5
-require_delta_under protocol 4.5
-require_delta_under trigger 6.5
-require_delta_under cc 3.5
-require_delta_under cable 3.0
-require_delta_under settings 2.5
-require_delta_under scope 1.0
-require_delta_under pdo 1.0
-require_delta_under qc 1.0
+for page in main dpdm power capacity protocol pdo emark scope ripple settings menu; do
+  require_delta_under "$page" 1.0
+done
 
 printf '%s\n' "PASS ui-reference-delta"

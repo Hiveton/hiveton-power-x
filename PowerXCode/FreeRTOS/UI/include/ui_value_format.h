@@ -34,6 +34,7 @@ static inline void ui_value_format_meter_5half(char *out, uint8_t limit, int32_t
 {
     uint8_t pos;
     uint32_t value;
+    int64_t signed_value;
 
     if (limit == 0U)
     {
@@ -41,11 +42,12 @@ static inline void ui_value_format_meter_5half(char *out, uint8_t limit, int32_t
     }
 
     pos = 0U;
-    if (milli_value < 0)
+    signed_value = (int64_t)milli_value;
+    if (signed_value < 0)
     {
-        milli_value = 0;
+        signed_value = -signed_value;
     }
-    value = (uint32_t)milli_value;
+    value = (uint32_t)signed_value;
 
     if (value >= 100000U)
     {

@@ -123,26 +123,85 @@ static void test_service_pd_requests_default_pdo_after_source_capabilities(void)
 
     service_pd_init();
 
-    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 1U);
-    assert(tx_length == 6U);
-    assert(tx_packet[0] == 0x82U);
-    assert((tx_packet[5] >> 4) == 1U);
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 0U);
+    assert(tx_length == 0U);
 
     service_pd_copy_snapshot(&snapshot);
     assert(snapshot.kind == PROTOCOL_KIND_PD);
-    assert(snapshot.contract_mv == 5000);
-    assert(snapshot.contract_ma == 3000);
+    assert(snapshot.contract_mv == 0);
+    assert(snapshot.contract_ma == 0);
     assert(snapshot.emark_present == 0U);
     assert(snapshot.legacy_step_offset == 0);
-    assert(snapshot.request_state == PROTOCOL_REQUEST_REQUESTING);
+    assert(snapshot.request_state == PROTOCOL_REQUEST_AVAILABLE);
     assert(snapshot.target_mv == 5000);
-    assert(snapshot.selected_pdo_index == 1U);
+    assert(snapshot.selected_pdo_index == 0U);
     assert(snapshot.source_fixed_count == 2U);
     assert(snapshot.source_fixed_mv[0] == 5000);
     assert(snapshot.source_fixed_ma[0] == 3000);
     assert(snapshot.source_fixed_mv[1] == 9000);
     assert(snapshot.source_fixed_ma[1] == 2000);
     assert(snapshot.pps_present == 0U);
+}
+
+static void test_service_pd_exposes_source_caps_for_on_demand_menu_page(void)
+{
+    uint8_t rx_packet[] = {
+        0x01U, 0x20U,
+        0x2CU, 0x91U, 0x01U, 0x00U,
+        0x3CU, 0x21U, 0xDCU, 0xC0U,
+    };
+    uint8_t tx_packet[6] = { 0 };
+    uint8_t tx_length = 0U;
+    service_pd_source_caps_snapshot_t caps;
+
+    service_pd_init();
+
+    service_pd_copy_source_caps(&caps);
+    assert(caps.count == 0U);
+
+    service_pd_request_source_capabilities();
+    assert(service_pd_prepare_source_cap_request(tx_packet, &tx_length) == 1U);
+    assert(tx_length == 2U);
+    assert((tx_packet[0] & 0xE0U) == 0x80U);
+    assert((tx_packet[0] & 0x1FU) == 0x07U);
+    assert((tx_packet[1] & 0x70U) == 0U);
+    assert(service_pd_prepare_source_cap_request(tx_packet, &tx_length) == 0U);
+    assert(tx_length == 0U);
+
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 0U);
+    service_pd_copy_source_caps(&caps);
+
+    assert(caps.count == 2U);
+    assert(caps.pdos[0].position == 1U);
+    assert(caps.pdos[0].type == SERVICE_PD_SOURCE_PDO_FIXED);
+    assert(caps.pdos[0].min_mv == 5000U);
+    assert(caps.pdos[0].max_mv == 5000U);
+    assert(caps.pdos[0].current_ma == 3000U);
+    assert(caps.pdos[0].power_deci_w == 150U);
+    assert(caps.pdos[1].position == 2U);
+    assert(caps.pdos[1].type == SERVICE_PD_SOURCE_PDO_PPS);
+    assert(caps.pdos[1].min_mv == 3300U);
+    assert(caps.pdos[1].max_mv == 11000U);
+    assert(caps.pdos[1].current_ma == 3000U);
+    assert(caps.pdos[1].power_deci_w == 330U);
+}
+
+static void test_service_pd_retries_source_cap_query_when_no_response_arrives(void)
+{
+    uint8_t tx_packet[6] = { 0 };
+    uint8_t tx_length = 0U;
+
+    service_pd_init();
+
+    service_pd_request_source_capabilities();
+    assert(service_pd_prepare_source_cap_request(tx_packet, &tx_length) == 1U);
+    assert(tx_length == 2U);
+    assert(service_pd_prepare_source_cap_request(tx_packet, &tx_length) == 0U);
+    assert(tx_length == 0U);
+
+    service_pd_handle_timeout_ms(200U);
+    assert(service_pd_prepare_source_cap_request(tx_packet, &tx_length) == 1U);
+    assert(tx_length == 2U);
 }
 
 static void test_service_pd_marks_pps_when_source_cap_contains_apdo(void)
@@ -158,10 +217,11 @@ static void test_service_pd_marks_pps_when_source_cap_contains_apdo(void)
 
     service_pd_init();
 
-    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 1U);
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 0U);
     service_pd_copy_snapshot(&snapshot);
 
     assert(snapshot.kind == PROTOCOL_KIND_PD);
+    assert(snapshot.request_state == PROTOCOL_REQUEST_AVAILABLE);
     assert(snapshot.source_fixed_count == 1U);
     assert(snapshot.source_fixed_mv[0] == 5000);
     assert(snapshot.pps_present == 1U);
@@ -189,6 +249,7 @@ static void test_service_pd_preserves_source_object_position_when_apdo_is_betwee
     uint8_t tx_packet[6] = { 0 };
     uint8_t tx_length = 0U;
     protocol_snapshot_t snapshot;
+    service_pd_source_caps_snapshot_t caps;
 
     service_pd_init();
     service_pd_set_preferred_voltage_mv(9000);
@@ -198,11 +259,19 @@ static void test_service_pd_preserves_source_object_position_when_apdo_is_betwee
     assert((tx_packet[5] >> 4) == 3U);
 
     service_pd_copy_snapshot(&snapshot);
+    assert(snapshot.contract_mv == 9000);
+    assert(snapshot.contract_ma == 2000);
     assert(snapshot.request_state == PROTOCOL_REQUEST_REQUESTING);
     assert(snapshot.target_mv == 9000);
     assert(snapshot.selected_pdo_index == 3U);
     assert(snapshot.source_fixed_count == 2U);
     assert(snapshot.source_fixed_mv[1] == 9000);
+    service_pd_copy_source_caps(&caps);
+    assert(caps.count == 3U);
+    assert(caps.pdos[0].position == 1U);
+    assert(caps.pdos[1].position == 2U);
+    assert(caps.pdos[1].type == SERVICE_PD_SOURCE_PDO_PPS);
+    assert(caps.pdos[2].position == 3U);
     assert(snapshot.pps_present == 1U);
     assert(snapshot.pps_min_mv == 3300);
     assert(snapshot.pps_max_mv == 11000);
@@ -243,6 +312,36 @@ static void test_service_pd_requests_pps_apdo_when_target_matches_pps_range(void
     assert(snapshot.pps_min_mv == 3300);
     assert(snapshot.pps_max_mv == 11000);
     assert(snapshot.pps_max_ma == 3000);
+}
+
+static void test_service_pd_requests_explicit_pdo_position_for_trigger(void)
+{
+    uint8_t rx_packet[] = {
+        0x01U, 0x20U,
+        0x2CU, 0x91U, 0x01U, 0x00U,
+        0x3CU, 0x21U, 0xDCU, 0xC0U,
+    };
+    uint8_t tx_packet[6] = { 0 };
+    uint8_t tx_length = 0U;
+    protocol_snapshot_t snapshot;
+    uint32_t request_word;
+
+    service_pd_init();
+    assert(service_pd_request_pdo_position(2U, 9020) == 1U);
+
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 1U);
+    assert(tx_length == 6U);
+    request_word = test_pd_get_u32_le(&tx_packet[2]);
+    assert((request_word >> 28) == 2U);
+    assert(((request_word >> 9) & 0x0FFFU) == 451U);
+    assert((request_word & 0x7FU) == 60U);
+
+    service_pd_copy_snapshot(&snapshot);
+    assert(snapshot.contract_mv == 9020);
+    assert(snapshot.contract_ma == 3000);
+    assert(snapshot.request_state == PROTOCOL_REQUEST_REQUESTING);
+    assert(snapshot.target_mv == 9020);
+    assert(snapshot.selected_pdo_index == 2U);
 }
 
 static void test_service_pd_caps_fixed_request_current_to_3a_without_emark(void)
@@ -486,11 +585,11 @@ static void test_service_pd_fails_vbus_verification_and_returns_to_default_targe
     assert(snapshot.target_mv == 9000);
 
     tx_length = 0U;
-    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 1U);
-    assert(tx_length == 6U);
-    assert((tx_packet[5] >> 4) == 1U);
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 0U);
+    assert(tx_length == 0U);
     service_pd_copy_snapshot(&snapshot);
     assert(snapshot.target_mv == 5000);
+    assert(snapshot.request_state == PROTOCOL_REQUEST_AVAILABLE);
 }
 
 static void test_service_pd_detach_clears_high_voltage_preference_before_next_source(void)
@@ -512,13 +611,13 @@ static void test_service_pd_detach_clears_high_voltage_preference_before_next_so
 
     service_pd_handle_detach();
     tx_length = 0U;
-    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 1U);
-    assert(tx_length == 6U);
-    assert((tx_packet[5] >> 4) == 1U);
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 0U);
+    assert(tx_length == 0U);
 
     service_pd_copy_snapshot(&snapshot);
     assert(snapshot.target_mv == 5000);
-    assert(snapshot.contract_mv == 5000);
+    assert(snapshot.contract_mv == 0);
+    assert(snapshot.request_state == PROTOCOL_REQUEST_AVAILABLE);
 }
 
 static void test_service_pd_reject_clears_high_voltage_preference_before_next_source(void)
@@ -545,13 +644,13 @@ static void test_service_pd_reject_clears_high_voltage_preference_before_next_so
     assert(snapshot.target_mv == 20000);
 
     tx_length = 0U;
-    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 1U);
-    assert(tx_length == 6U);
-    assert((tx_packet[5] >> 4) == 1U);
+    assert(service_pd_handle_rx_packet(rx_packet, sizeof(rx_packet), tx_packet, &tx_length) == 0U);
+    assert(tx_length == 0U);
 
     service_pd_copy_snapshot(&snapshot);
     assert(snapshot.target_mv == 5000);
-    assert(snapshot.contract_mv == 5000);
+    assert(snapshot.contract_mv == 0);
+    assert(snapshot.request_state == PROTOCOL_REQUEST_AVAILABLE);
 }
 
 static void test_service_pd_publishes_emark_identity_summary(void)
@@ -562,7 +661,7 @@ static void test_service_pd_publishes_emark_identity_summary(void)
         0x00U, 0x00U, 0x00U, 0x00U,
         0x00U, 0x00U, 0x00U, 0x00U,
         0x00U, 0x00U, 0x00U, 0x00U,
-        0x43U, 0x20U, 0x08U, 0x00U,
+        0x43U, 0x26U, 0x08U, 0x00U,
     };
     uint8_t tx_packet[6] = { 0 };
     uint8_t tx_length = 0U;
@@ -577,6 +676,8 @@ static void test_service_pd_publishes_emark_identity_summary(void)
     assert(snapshot.emark_current_a == 5U);
     assert(snapshot.emark_usb_speed_grade == 3U);
     assert(snapshot.emark_cable_type == 2U);
+    assert(snapshot.emark_max_voltage_v == 50U);
+    assert(snapshot.emark_cable_length_m == 1U);
 }
 
 static void test_service_pd_prepares_emark_discover_identity_after_contract_ready(void)
@@ -589,6 +690,7 @@ static void test_service_pd_prepares_emark_discover_identity_after_contract_read
     uint8_t tx_length = 0U;
 
     service_pd_init();
+    service_pd_set_preferred_voltage_mv(5000);
 
     assert(service_pd_handle_rx_packet(src_cap_packet, sizeof(src_cap_packet), tx_packet, &tx_length) == 1U);
     assert(service_pd_handle_rx_packet((const uint8_t[]){ 0x03U, 0x00U }, 2U, tx_packet, &tx_length) == 0U);
@@ -652,9 +754,12 @@ int main(void)
     test_protocol_snapshot_legacy_update();
     test_protocol_snapshot_other_update();
     test_service_pd_requests_default_pdo_after_source_capabilities();
+    test_service_pd_exposes_source_caps_for_on_demand_menu_page();
+    test_service_pd_retries_source_cap_query_when_no_response_arrives();
     test_service_pd_marks_pps_when_source_cap_contains_apdo();
     test_service_pd_preserves_source_object_position_when_apdo_is_between_fixed_pdos();
     test_service_pd_requests_pps_apdo_when_target_matches_pps_range();
+    test_service_pd_requests_explicit_pdo_position_for_trigger();
     test_service_pd_caps_fixed_request_current_to_3a_without_emark();
     test_service_pd_caps_pps_request_current_to_3a_without_emark();
     test_service_pd_prepares_pending_request_after_caps();

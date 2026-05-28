@@ -31,6 +31,12 @@ static uint16_t g_lcd_rotation_degrees;
 #define PX1_LCD_DMA_CHANNEL DMA1_Channel3
 #define PX1_LCD_DMA_CLOCK RCC_HBPeriph_DMA1
 #define PX1_LCD_DMA_TC_FLAG DMA1_FLAG_TC3
+#define PX1_LCD_SPI_WAIT_GUARD 100000UL
+#define PX1_LCD_SPI_TXE_WAIT_GUARD 100000UL
+#define PX1_LCD_DMA_WAIT_GUARD 1000000UL
+
+static uint16_t g_lcd_spi_data_size = SPI_DataSize_8b;
+static uint16_t g_lcd_dma_dummy;
 
 typedef struct
 {
@@ -98,11 +104,12 @@ static void bsp_lcd_spi_init(void)
     spi_init.SPI_CPOL = SPI_CPOL_High;
     spi_init.SPI_CPHA = SPI_CPHA_2Edge;
     spi_init.SPI_NSS = SPI_NSS_Soft;
-    spi_init.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_4;
+    spi_init.SPI_BaudRatePrescaler = SPI_BaudRatePrescaler_2;
     spi_init.SPI_FirstBit = SPI_FirstBit_MSB;
     spi_init.SPI_CRCPolynomial = 7U;
     SPI_Init(PX1_LCD_SPI, &spi_init);
     SPI_Cmd(PX1_LCD_SPI, ENABLE);
+    g_lcd_spi_data_size = SPI_DataSize_8b;
 }
 
 static void bsp_lcd_dma_init(void)
@@ -113,9 +120,9 @@ static void bsp_lcd_dma_init(void)
     DMA_DeInit(PX1_LCD_DMA_CHANNEL);
 
     dma_init.DMA_PeripheralBaseAddr = (uint32_t)&PX1_LCD_SPI->DATAR;
-    dma_init.DMA_MemoryBaseAddr = 0U;
+    dma_init.DMA_MemoryBaseAddr = (uint32_t)&g_lcd_dma_dummy;
     dma_init.DMA_DIR = DMA_DIR_PeripheralDST;
-    dma_init.DMA_BufferSize = 0U;
+    dma_init.DMA_BufferSize = 1U;
     dma_init.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
     dma_init.DMA_MemoryInc = DMA_MemoryInc_Enable;
     dma_init.DMA_PeripheralDataSize = DMA_PeripheralDataSize_HalfWord;
@@ -124,6 +131,7 @@ static void bsp_lcd_dma_init(void)
     dma_init.DMA_Priority = DMA_Priority_VeryHigh;
     dma_init.DMA_M2M = DMA_M2M_Disable;
     DMA_Init(PX1_LCD_DMA_CHANNEL, &dma_init);
+    SPI_I2S_DMACmd(PX1_LCD_SPI, SPI_I2S_DMAReq_Tx, ENABLE);
 }
 
 static void bsp_lcd_ctrl_init(void)
@@ -142,16 +150,97 @@ static void bsp_lcd_ctrl_init(void)
 #endif
 }
 
-static void bsp_lcd_write_u8(uint8_t value)
+static uint8_t bsp_lcd_wait_idle(void)
 {
-    while (SPI_I2S_GetFlagStatus(PX1_LCD_SPI, SPI_I2S_FLAG_TXE) == RESET)
+    uint32_t guard;
+
+    guard = PX1_LCD_SPI_WAIT_GUARD;
+    while ((SPI_I2S_GetFlagStatus(PX1_LCD_SPI, SPI_I2S_FLAG_BSY) != RESET) &&
+           (guard != 0UL))
     {
+        --guard;
+    }
+
+    return (guard != 0UL) ? 1U : 0U;
+}
+
+static uint8_t bsp_lcd_wait_txe(void)
+{
+    uint32_t guard;
+
+    guard = PX1_LCD_SPI_TXE_WAIT_GUARD;
+    while ((SPI_I2S_GetFlagStatus(PX1_LCD_SPI, SPI_I2S_FLAG_TXE) == RESET) &&
+           (guard != 0UL))
+    {
+        --guard;
+    }
+
+    return (guard != 0UL) ? 1U : 0U;
+}
+
+static void bsp_lcd_recover_spi(void)
+{
+    SPI_Cmd(PX1_LCD_SPI, DISABLE);
+    SPI_Cmd(PX1_LCD_SPI, ENABLE);
+}
+
+static void bsp_lcd_spi_set_data_size(uint16_t data_size)
+{
+    if (g_lcd_spi_data_size == data_size)
+    {
+        return;
+    }
+
+    if (bsp_lcd_wait_idle() == 0U)
+    {
+        bsp_lcd_recover_spi();
+    }
+    SPI_Cmd(PX1_LCD_SPI, DISABLE);
+    SPI_DataSizeConfig(PX1_LCD_SPI, data_size);
+    SPI_Cmd(PX1_LCD_SPI, ENABLE);
+    g_lcd_spi_data_size = data_size;
+}
+
+static void bsp_lcd_write_u8_stream(uint8_t value)
+{
+    bsp_lcd_spi_set_data_size(SPI_DataSize_8b);
+    if (bsp_lcd_wait_txe() == 0U)
+    {
+        bsp_lcd_recover_spi();
+        return;
     }
 
     SPI_I2S_SendData(PX1_LCD_SPI, value);
-    while (SPI_I2S_GetFlagStatus(PX1_LCD_SPI, SPI_I2S_FLAG_BSY) != RESET)
+}
+
+static void bsp_lcd_dma_transfer_pixels(const uint16_t *pixels, uint16_t count)
+{
+    uint32_t guard;
+
+    bsp_lcd_spi_set_data_size(SPI_DataSize_16b);
+    DMA_Cmd(PX1_LCD_DMA_CHANNEL, DISABLE);
+    PX1_LCD_DMA_CHANNEL->MADDR = (uint32_t)pixels;
+    DMA_ClearFlag(PX1_LCD_DMA_TC_FLAG);
+    DMA_SetCurrDataCounter(PX1_LCD_DMA_CHANNEL, count);
+    DMA_Cmd(PX1_LCD_DMA_CHANNEL, ENABLE);
+    guard = PX1_LCD_DMA_WAIT_GUARD;
+    while ((DMA_GetFlagStatus(PX1_LCD_DMA_TC_FLAG) == RESET) &&
+           (guard != 0UL))
     {
+        --guard;
     }
+    DMA_Cmd(PX1_LCD_DMA_CHANNEL, DISABLE);
+    DMA_ClearFlag(PX1_LCD_DMA_TC_FLAG);
+    if (bsp_lcd_wait_idle() == 0U)
+    {
+        bsp_lcd_recover_spi();
+    }
+}
+
+static void bsp_lcd_write_u8(uint8_t value)
+{
+    bsp_lcd_write_u8_stream(value);
+    bsp_lcd_wait_idle();
 }
 
 static void bsp_lcd_write_bus_pulsed(uint8_t value)
@@ -377,15 +466,7 @@ void bsp_lcd_push_pixels(const uint16_t *pixels, uint16_t count)
 #if PX1_BOARD_HAS_CONFIRMED_LCD_CTRL_PINS
     GPIO_ResetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
     GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
-    while (count != 0U)
-    {
-        uint16_t color;
-
-        color = *pixels++;
-        bsp_lcd_write_u8((uint8_t)(color >> 8));
-        bsp_lcd_write_u8((uint8_t)color);
-        --count;
-    }
+    bsp_lcd_dma_transfer_pixels(pixels, count);
     GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
 #else
     (void)pixels;
@@ -419,9 +500,10 @@ void bsp_lcd_fill_color(uint16_t color)
             GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
             for (x = 0U; x < LCD_WIDTH; ++x)
             {
-                bsp_lcd_write_u8((uint8_t)(color >> 8));
-                bsp_lcd_write_u8((uint8_t)color);
+                bsp_lcd_write_u8_stream((uint8_t)(color >> 8));
+                bsp_lcd_write_u8_stream((uint8_t)color);
             }
+            bsp_lcd_wait_idle();
             GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
         }
 #endif
@@ -466,9 +548,10 @@ void bsp_lcd_fill_rect(uint16_t x, uint16_t y, uint16_t width, uint16_t height, 
             GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
             for (col = 0U; col < width; ++col)
             {
-                bsp_lcd_write_u8((uint8_t)(color >> 8));
-                bsp_lcd_write_u8((uint8_t)color);
+                bsp_lcd_write_u8_stream((uint8_t)(color >> 8));
+                bsp_lcd_write_u8_stream((uint8_t)color);
             }
+            bsp_lcd_wait_idle();
             GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
         }
 #endif
@@ -521,9 +604,10 @@ void bsp_lcd_draw_test_pattern(void)
             GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_DC);
             for (x = 0U; x < LCD_WIDTH; ++x)
             {
-                bsp_lcd_write_u8((uint8_t)(color >> 8));
-                bsp_lcd_write_u8((uint8_t)color);
+                bsp_lcd_write_u8_stream((uint8_t)(color >> 8));
+                bsp_lcd_write_u8_stream((uint8_t)color);
             }
+            bsp_lcd_wait_idle();
             GPIO_SetBits(PX1_LCD_CTRL_GPIO, PX1_LCD_PIN_CS);
         }
 #endif
